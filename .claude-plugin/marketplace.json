@@ -1,0 +1,26 @@
+{
+  "name": "dbohorquez",
+  "owner": {
+    "name": "David Bohórquez"
+  },
+  "description": "David Bohórquez's Claude Code plugins: mods, skills and hooks",
+  "plugins": [
+    {
+      "name": "bridge",
+      "source": "./plugins/bridge",
+      "version": "2.0.0",
+      "description": "Bridge: a docked sessions pane of this machine's Claude sessions on shelves, with project icons, live status, snooze, sort and tab focus",
+      "keywords": [
+        "bridge",
+        "sidebar",
+        "sessions",
+        "subagents",
+        "ui",
+        "pane",
+        "cmux",
+        "tmux",
+        "terminal"
+      ]
+    }
+  ]
+}

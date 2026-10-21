@@ -48,8 +48,24 @@ haven't stopped". A reply with a Needs You block has no closing line, because th
 
 ## Getting replies in this shape
 
-The mod only draws; it does not tell Claude how to write. Replies get the markers from your output style or
-instructions. A reply the mod styles looks like this in plain markdown:
+The mod only draws; it does not tell Claude how to write. Replies get the markers from an output style (or your own
+instructions). The plugin ships an example output style to start from:
+[`examples/reply-markers.md`](examples/reply-markers.md). It is a general version of the style the format came from:
+answer first, plain complete sentences, every decision in the Needs You block, and one closing state line.
+
+To use it, download it into your own output styles, adapt it, and select it:
+
+```sh
+mkdir -p ~/.claude/output-styles
+curl -fsSL -o ~/.claude/output-styles/reply-markers.md \
+  https://raw.githubusercontent.com/dbohorquez8/ai/main/plugins/reply-style/examples/reply-markers.md
+```
+
+Then pick **reply-markers** under Output style in `/config` (or set `"outputStyle": "reply-markers"` in
+`~/.claude/settings.json`) and start a new session. Change the name, the tone and the rules to fit how you read; keep
+the marker rules below if you want the bars.
+
+A reply the mod styles looks like this in plain markdown:
 
 ```markdown
 **Read** The checkout bug is fixed: a discount code no longer applies twice.

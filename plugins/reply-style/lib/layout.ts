@@ -56,7 +56,7 @@ export function layoutReply(text: string, columns: number): Section[] | null {
   if (middleEnd > middleStart) sections.push({ kind: "markdown", text: sourceOf(middleStart, middleEnd - 1) });
   if (state) {
     // The closing state line: a colored dot, then the sentence. Done draws the dot in the default color.
-    const color: TerminalColor | undefined = state.kind === "running" ? "success" : state.kind === "working" ? "warning" : undefined;
+    const color: TerminalColor | undefined = state.kind === "waiting" ? "success" : state.kind === "working" ? "warning" : undefined;
     const dot: Run = color ? { text: STATE_DOT, color } : { text: STATE_DOT };
     const wrapped = wrapRuns(inlineRuns(restOf(blocks[blocks.length - 1]).trim()), contentWidth);
     sections.push({ kind: "styled", lines: wrapped.map((line, n) => (n === 0 ? [dot, ...line] : [{ text: " ".repeat(BAR_WIDTH) }, ...line])) });

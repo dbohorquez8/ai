@@ -7,7 +7,7 @@ export const NEEDS_YOU_LEAD = "Needs You";
 export const MY_LEAN = "(My lean)";
 
 /** The bold lead of the closing state paragraph, and the state it names. */
-export const STATE_LEADS = { Running: "running", Working: "working", Done: "done" } as const;
+export const STATE_LEADS = { Waiting: "waiting", Working: "working", Done: "done" } as const;
 export type StateKind = (typeof STATE_LEADS)[keyof typeof STATE_LEADS];
 
 /** A question header's whole bold text: 1-2 digits, space, U+00B7, space, text. */

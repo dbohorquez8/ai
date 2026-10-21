@@ -5,12 +5,13 @@ import { inlineRuns, type Run } from "./inline";
 import { classifyReply, type BlockRole } from "./markers";
 import { wrapRuns } from "./width";
 
-export type TerminalColor = "accent" | "error" | "errorBar" | "muted";
+export type TerminalColor = "accent" | "error" | "errorBar" | "muted" | "success" | "warning";
 export type TerminalLine = Run[];
 export type Section = { kind: "styled"; lines: TerminalLine[] } | { kind: "markdown"; text: string };
 
 export const OPENING_BAR = "▎ ";
 export const ACTION_BAR = "┃ ";
+export const STATE_DOT = "● ";
 export const DASH = "╌";
 export const WRAP_INDENT = "    ";
 
@@ -33,7 +34,9 @@ export function layoutReply(text: string, columns: number): Section[] | null {
   const roles: BlockRole[] = classifyReply(blocks);
   const hasOpening = roles[0]?.role === "opening";
   const firstLabel = roles.findIndex((role) => role.role === "label");
-  if (!hasOpening && firstLabel === -1) return null;
+  const last = roles[roles.length - 1];
+  const state = last?.role === "state" ? last : undefined;
+  if (!hasOpening && firstLabel === -1 && !state) return null;
 
   const contentWidth = Math.max(1, columns - BAR_WIDTH);
   const sections: Section[] = [];
@@ -49,8 +52,16 @@ export function layoutReply(text: string, columns: number): Section[] | null {
   }
 
   const middleStart = hasOpening ? 1 : 0;
-  const middleEnd = firstLabel === -1 ? blocks.length : firstLabel;
+  const middleEnd = firstLabel === -1 ? blocks.length - (state ? 1 : 0) : firstLabel;
   if (middleEnd > middleStart) sections.push({ kind: "markdown", text: sourceOf(middleStart, middleEnd - 1) });
+  if (state) {
+    // The closing state line: a colored dot, then the sentence. Done draws the dot in the default color.
+    const color: TerminalColor | undefined = state.kind === "running" ? "success" : state.kind === "working" ? "warning" : undefined;
+    const dot: Run = color ? { text: STATE_DOT, color } : { text: STATE_DOT };
+    const wrapped = wrapRuns(inlineRuns(restOf(blocks[blocks.length - 1]).trim()), contentWidth);
+    sections.push({ kind: "styled", lines: wrapped.map((line, n) => (n === 0 ? [dot, ...line] : [{ text: " ".repeat(BAR_WIDTH) }, ...line])) });
+    return sections;
+  }
   if (firstLabel === -1) return sections;
 
   let lastAction = firstLabel;

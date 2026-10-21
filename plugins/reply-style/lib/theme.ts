@@ -9,4 +9,7 @@ export const THEME_KEYS: Readonly<Record<TerminalColor, { color: ThemeKey; dimCo
   // Open Question 1, revised to B: the action bar is the error role at full strength (faint read as gray).
   errorBar: { color: "error" },
   muted: { color: "inactive" },
+  // The closing state dot: green for Running, yellow for Working (WS-119).
+  success: { color: "success" },
+  warning: { color: "warning" },
 };

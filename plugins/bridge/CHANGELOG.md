@@ -1,7 +1,14 @@
 # Changelog
 
-## Unreleased
+## 2.1.0 — 2026-10-19
 
+> A chime when a session needs you, Failed, Background and Check? states, background rows, project icons and context colors that follow the model's window.
+
+- The default context soft limit follows the model's context window: 100k tokens for a window up to
+  200k (or an unknown one), 300k above it (a 1M window). `/bridge soft-limit <n>|off` still overrides it.
+- Project icons have limits: a candidate file over 1 MB is skipped and the next one tried, and a PNG or
+  ICO wider or taller than 1024 pixels is not converted (the card shows the project's letter). SVGs are
+  checked by size only. Cached icons are rebuilt once.
 - The plugin is now Bridge: id `bridge`, command `/bridge`, pane title `Bridge`. Settings saved under the
   old `koombea-sidebar` name are not carried over and start from their defaults.
 - Project icons replace the per-card creatures: each card's first line starts with the project's
@@ -14,15 +21,20 @@
 - A Done card's title is bold until the card is pressed.
 - Failed: a red `✕ Failed` pill when this session's last turn ended on an API error (until the card is
   pressed, a later turn ends well or the next prompt is sent), or when a session's status word is `failed` or `error`.
-- Check?: this session's idle card shows yellow `Check?` while its last stop still listed background tasks;
-  it stays parked, snoozed or settled when put away.
+- Background: this session's card shows a green turning gear, `Background` and its age when its turn
+  ended while background tasks still run.
+- Check?: an orange `Check?` and its age replace Background once the background work has stayed silent
+  past a threshold; `/bridge check-after <minutes>|off` (`setting:checkAfter`, default 15). A card in
+  either state stays parked, snoozed or settled when put away.
+- When more than one status applies, the order is Needs you, Working, Check?, Failed, Background, Done, Idle.
+- The README's status table shows a picture of each status.
 - This session's background tasks are rows under its card (`⟳ Kind label age`, up to 3, then `+N more`),
   in place of the `⟳ n` count.
 - A chime when a card changes into Needs you or Failed, once across sessions, silent for a card put
   away; `/bridge sound on|off` (`setting:sound`, default on).
 - The README lists its command table once.
-- `/bridge soft-limit 150k|off` sets the context soft limit (default 150k
-  tokens, `setting:softLimit`). The percentage still shows the window fill; its color turns orange
+- `/bridge soft-limit 100k|off` sets the context soft limit (`setting:softLimit`; the default
+  follows the window, see above). The percentage still shows the window fill; its color turns orange
   from 75% of the soft limit and red at 100%.
 - The `Manual` sort mode is gone: moving cards one place at a time is not a practical way to order a terminal list. A stored `manual` sort reads as `Recent activity`.
   Pinned cards still move up and down.
@@ -48,7 +60,7 @@ The redesigned look and behaviour, in three layers (core, drawing, terminal adap
 - A `N need you` line and a `Next` button (hotkey `n`) that focuses the next session waiting for you.
 - Card details: git branch, model, pull request number and, for this session, a context bar
   (`NN% ▰▰▱▱`). Subagent rows show a tag and age; waiting rows are tinted.
-- Light and dark palettes from the Workspace design tokens, each checked for 4.5:1 contrast. The
+- Light and dark palettes from a shared set of design tokens, each checked for 4.5:1 contrast. The
   theme follows Claude Code's, with a `Theme: auto` setting to override it.
 - New data sources: `claude agents --json` as a 30-second cross-check of status; titles read at
   most the last 256 KB of a transcript, in every mode; pull request numbers from `gh pr list`

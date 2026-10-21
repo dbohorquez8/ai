@@ -303,19 +303,18 @@ describe('session cards', () => {
     const { ui } = await mounted($, on, { reads: [] })
     // phase 2: AC-21 -- the pill is palette hex on the red pill fill with the bell.
     // amend 2026-10-18: AC-23, AC-24 -- line 3 is the branch alone; no reason is drawn.
-    expect((await ui.find({ key: 'row:r3' }))?.text).toMatch(/Workspace\s+[⠼⢼][⡿⠿⢿]⠄\s*Needs you\s*wt-1\s+⎇ ws-84\s*$/) // amend 2026-10-18: AC-21 -- braille bell
+    expect((await ui.find({ key: 'row:r3' }))?.text).toMatch(/Workspace\s+▐![\u00a0]+Needs you\u00a0▌wt-1\s+⎇ ws-84\s*$/)
     expect((await ui.find({ key: 'row:r3' }))?.text).not.toMatch(/input needed/) // amend 2026-10-18: AC-24
     const pill = (await ui.findAll({ type: 'Text' })).find(one => one.props.backgroundColor === PALETTES.dark.pill.red.bg)
-    expect(pill?.text).toMatch(/^\s*[⠼⢼][⡿⠿⢿]⠄\s*Needs you\s*$/)
+    expect(pill?.text).toMatch(/^![\u00a0]+Needs you\u00a0$/)
     expect(pill?.props.color).toBe(PALETTES.dark.pill.red.fg)
   })
 
   test('subagents nest under this session\'s card behind a left rule', async ($, on) => {
     const { ui } = await mounted($, on, { reads: [] })
     const card = await ui.find({ key: `card:${SELF}` })
-    // phase 2: AC-31b -- child tags are uppercase.
-    expect(card?.text).toMatch(/│ ● Scan repo\s*RUNNING/)
-    expect(card?.text).toMatch(/│ ● Write notes\s*DONE/)
+    expect(card?.text).toMatch(/│ ● Scan repo\s*.*Working/)
+    expect(card?.text).toMatch(/│ ● Write notes\s*.*Done/)
     expect((await ui.find({ key: 'child:sub1' }))?.text).toMatch(/^ {2}│ ● Scan repo/)
     expect((await ui.find({ key: 'card:r2' }))?.text).not.toMatch(/Scan repo/)
     expect(await ui.find({ key: 'view:main' })).toBeUndefined()

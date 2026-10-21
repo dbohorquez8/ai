@@ -4,19 +4,33 @@
 
 import { PREF_PREFIX } from '../sidebar-policy'
 import { DEFAULT_COLLAPSED, SHELF_ORDER } from './types'
-import type { Entry, Layout, Settings, ShelfId, SortMode, Stored } from './types'
+import type { Entry, GlyphSetting, Layout, Settings, ShelfId, SortMode, Stored } from './types'
 
 export { PREF_PREFIX }
 
 export const PRUNE_AFTER_MS = 30 * 86_400_000
 
-export const KEYS = { shelves: 'shelves', sort: 'sort', layout: 'layout', icons: 'setting:icons', theme: 'setting:theme', workingShelf: 'setting:workingShelf', caption: 'scene:caption', tickets: 'setting:tickets', softLimit: 'setting:softLimit', sound: 'setting:sound' } as const
+export const KEYS = { shelves: 'shelves', sort: 'sort', layout: 'layout', icons: 'setting:icons', theme: 'setting:theme', workingShelf: 'setting:workingShelf', glyphs: 'setting:glyphs', caption: 'scene:caption', tickets: 'setting:tickets', softLimit: 'setting:softLimit', checkAfter: 'setting:checkAfter', sound: 'setting:sound' } as const
 
-/** The default soft limit: where the smart zone ends when no soft limit is set. */
-export const DEFAULT_SOFT_LIMIT = 150_000
+export const DEFAULT_CHECK_AFTER_MINUTES = 15
+
+/** The default soft limit for a context window up to 200k tokens, or an unknown one. */
+export const DEFAULT_SOFT_LIMIT = 100_000
+/** The default soft limit for a context window above 200k tokens (a 1M window). */
+export const LARGE_WINDOW_SOFT_LIMIT = 300_000
+/** The largest window that takes DEFAULT_SOFT_LIMIT. */
+export const LARGE_WINDOW_ABOVE = 200_000
+
+/**
+ * Where the smart zone ends when no soft limit is set, by the model's context window: 100k up to a
+ * 200k window (and when the window is unknown), 300k above it. Quality drops well before a window is full.
+ */
+export const defaultSoftLimitOf = (window: number | undefined): number =>
+  window !== undefined && window > LARGE_WINDOW_ABOVE ? LARGE_WINDOW_SOFT_LIMIT : DEFAULT_SOFT_LIMIT
 
 const SORTS: readonly SortMode[] = ['recent', 'created', 'project']
 const THEMES: ReadonlyArray<Settings['theme']> = ['auto', 'dark', 'light']
+const GLYPHS: readonly GlyphSetting[] = ['auto', 'nerd', 'plain']
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 const isTime = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
@@ -75,11 +89,13 @@ export const loadStored = (raw: ReadonlyMap<string, unknown>): { stored: Stored;
   const icons = read<boolean>(KEYS.icons, value => (typeof value === 'boolean' ? value : undefined), true)
   const theme = read<Settings['theme']>(KEYS.theme, value => THEMES.find(one => one === value), 'auto')
   const workingShelf = read<boolean>(KEYS.workingShelf, value => (typeof value === 'boolean' ? value : undefined), false)
+  const glyphs = read<GlyphSetting | undefined>(KEYS.glyphs, value => GLYPHS.find(one => one === value), undefined)
   const caption = read<number | undefined>(KEYS.caption, value => (typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined), undefined)
   const tickets = read<readonly string[]>(KEYS.tickets, ticketPrefixesOf, [])
   const softLimit = read<number | undefined>(KEYS.softLimit, value => (typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined), undefined)
+  const checkAfter = read<number | undefined>(KEYS.checkAfter, value => (typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined), undefined)
   const sound = read<boolean | undefined>(KEYS.sound, value => (typeof value === 'boolean' ? value : undefined), undefined)
-  const stored: Stored = { entries, layout, sort, collapsed, settings: { icons, theme, workingShelf, ...(tickets.length > 0 ? { tickets } : {}), ...(softLimit !== undefined ? { softLimit } : {}), ...(sound !== undefined ? { sound } : {}) } }
+  const stored: Stored = { entries, layout, sort, collapsed, settings: { icons, theme, workingShelf, ...(glyphs !== undefined ? { glyphs } : {}), ...(tickets.length > 0 ? { tickets } : {}), ...(softLimit !== undefined ? { softLimit } : {}), ...(checkAfter !== undefined ? { checkAfter } : {}), ...(sound !== undefined ? { sound } : {}) } }
   if (caption !== undefined) stored.caption = caption
   return { stored, resetKeys }
 }
@@ -101,7 +117,7 @@ export const softLimitOf = (raw: string): number | undefined => {
 }
 
 /** The `/bridge` argument forms, shown after the command name. */
-export const SIDEBAR_ARGS_HINT = 'icons on|off · working-shelf on|off · theme auto|light|dark · tickets WS-,AID-|off · soft-limit 150k|off · sound on|off'
+export const SIDEBAR_ARGS_HINT = 'icons on|off · working-shelf on|off · glyphs auto|nerd|plain · theme auto|light|dark · tickets WS-,AID-|off · soft-limit 100k|off · check-after 15|off · sound on|off'
 
 /**
  * A `/bridge` setting from its typed arguments (settings stay off the sidebar, so the pane has no
@@ -113,8 +129,9 @@ export const SIDEBAR_ARGS_HINT = 'icons on|off · working-shelf on|off · theme 
 export const sidebarSettingOf = (args: string):
   | { key: typeof KEYS.icons | typeof KEYS.workingShelf | typeof KEYS.sound; value: boolean; label: string }
   | { key: typeof KEYS.theme; value: 'auto' | 'light' | 'dark'; label: string }
+  | { key: typeof KEYS.glyphs; value: GlyphSetting; label: string }
   | { key: typeof KEYS.tickets; value: string[]; label: string }
-  | { key: typeof KEYS.softLimit; value: number; label: string }
+  | { key: typeof KEYS.softLimit | typeof KEYS.checkAfter; value: number; label: string }
   | { error: string }
   | undefined => {
   const words = args.trim().toLowerCase().split(/\s+/).filter(Boolean)
@@ -124,6 +141,7 @@ export const sidebarSettingOf = (args: string):
     return { key: name === 'icons' ? KEYS.icons : KEYS.workingShelf, value: value === 'on', label: `${name === 'icons' ? 'Project icons' : 'Working shelf'}: ${value}` }
   }
   if (words.length === 2 && name === 'sound' && (value === 'on' || value === 'off')) return { key: KEYS.sound, value: value === 'on', label: `Needs-you chime: ${value}` }
+  if (words.length === 2 && name === 'glyphs' && GLYPHS.includes(value as GlyphSetting)) return { key: KEYS.glyphs, value: value as GlyphSetting, label: `Glyphs: ${value}` }
   if (words.length === 2 && name === 'theme' && (value === 'auto' || value === 'light' || value === 'dark')) return { key: KEYS.theme, value, label: `Theme: ${value}` }
   if (name === 'tickets' && words.length >= 2) {
     const prefixes = words[1] === 'off' && words.length === 2 ? [] : ticketPrefixesOf(args.trim().slice('tickets'.length).split(/[\s,]+/))
@@ -133,6 +151,11 @@ export const sidebarSettingOf = (args: string):
     if (words[1] === 'off' && words.length === 2) return { key: KEYS.softLimit, value: 0, label: 'Soft limit: off' }
     const limit = softLimitOf(words.slice(1).join(''))
     if (limit !== undefined) return { key: KEYS.softLimit, value: limit, label: `Soft limit: ${limit.toLocaleString('en-US')} tokens` }
+  }
+  if (name === 'check-after' && words.length === 2) {
+    if (value === 'off') return { key: KEYS.checkAfter, value: 0, label: 'Check after: off' }
+    const minutes = /^\d+$/.test(value) ? Number(value) : undefined
+    if (minutes !== undefined && Number.isSafeInteger(minutes) && minutes > 0) return { key: KEYS.checkAfter, value: minutes, label: `Check after: ${minutes} minutes` }
   }
   return { error: `Unknown setting. Use: /bridge ${SIDEBAR_ARGS_HINT}` }
 }

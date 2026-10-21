@@ -31,9 +31,9 @@ export const drawPane = (
   const { Box } = els
   return (
     <Box flexDirection="column">
-      {noticeOf(els, extra.notice)}
+      {noticeOf(els, view, extra.notice)}
       {view.shelves.map((shelf, at) => shelfOf(els, view, shelf, at, frame, on, extra.viewedAgent))}
-      {noteOf(els, extra.note)}
+      {noteOf(els, view, extra.note)}
     </Box>
   )
 }

@@ -4,16 +4,22 @@
 import { ageLabel, timeLeftLabel } from './age'
 import { cellWidth, fitCells } from './width'
 import { parseTicketId } from './tickets'
-import { TAG_HUE } from './types'
-import type { BackgroundTask, Child, ChildTag, Palette, Seg, Session, Status } from './types'
+import { STATUS_HUE } from './types'
+import type { BackgroundTask, Child, GlyphMode, Palette, Seg, Session, Status } from './types'
 
 export const MAX_CHILD_ROWS = 5
 /** Below this many usable columns the project icons are hidden, the setting unchanged. */
 export const ICON_MIN_COLUMNS = 30
 /** The project icon's cells at the start of line 1: two for the icon, one gap. */
 export const ICON_CELLS = 3
+/** Full cards have one blank row between them; a selected card draws a half-row edge (`▄` above, `▀` below) in that row instead. */
+export const CARD_GAP_ROWS = 1
+export const CARD_EDGE_TOP = '▄'
+export const CARD_EDGE_BOTTOM = '▀'
+/** One terminal cell on each side of an inset pane row stays outside its exact-width content. */
+export const ROW_HORIZONTAL_PADDING = 1
 
-export type CardInput = { s: Session; status: Status; woke: boolean; snoozedUntil?: number; children: readonly Child[]; now: number; bell: 0 | 1 | 2; palette: Palette; projectColor: string; tickets?: readonly string[]; softLimit?: number }
+export type CardInput = { s: Session; status: Status; woke: boolean; snoozedUntil?: number; children: readonly Child[]; now: number; bell: 0 | 1 | 2; palette: Palette; projectColor: string; glyphMode: GlyphMode; tickets?: readonly string[]; softLimit?: number }
 
 type TextSeg = Extract<Seg, { kind: 'text' }>
 type Style = Partial<Omit<TextSeg, 'kind' | 'text'>>
@@ -61,44 +67,62 @@ export const headerOf = (label: string, count: number, isCollapsed: boolean, wid
   return cellWidth(line) > width ? fitCells(line, width) : line
 }
 
-/** Children in the order of AC-92: waiting, then running, then the rest, each newest first. */
+/** Children in urgency order: Needs you, Failed, Working, then finished, each newest first. */
 export const sortChildren = (children: readonly Child[]): Child[] => {
-  const rank = (tag: ChildTag) => (tag === 'WAITING' ? 0 : tag === 'RUNNING' ? 1 : 2)
-  return [...children].sort((a, b) => rank(a.tag) - rank(b.tag) || b.startedAt - a.startedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const rank = (status: Child['status']) => (status === 'needs-you' ? 0 : status === 'failed' ? 1 : status === 'working' ? 2 : 3)
+  return [...children].sort((a, b) => rank(a.status) - rank(b.status) || b.startedAt - a.startedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 }
 
 /**
- * The pill's bell, drawn in braille dots like the Working spinner so it takes the pill's red as the
- * tinted icon does: a dome three dots wide and two deep, a rim five dots wide, and a clapper that
- * swings left and right to ring (rest, left, right; bell steps 0, 1, 2).
+ * Caps sit outside the filled block. Their foreground takes the fill colour; their background stays
+ * the row background (the selected-card fill on the own card), making a terminal-cell rounded end.
  */
-const BELL_TEXT = [' ⠼⡿⠄ Needs you ', ' ⢼⠿⠄ Needs you ', ' ⠼⢿⠄ Needs you '] as const
+const capsOf = (mode: GlyphMode) => mode === 'nerd' ? ['\ue0b6', '\ue0b4'] as const : ['▐', '▌'] as const
+const pillOf = (label: string, pill: Palette['pill']['red'], mode: GlyphMode, selected: boolean): Seg[] => {
+  const [left, right] = capsOf(mode)
+  const cap = { color: pill.bg, ...(selected ? { bg: undefined } : {}) }
+  // Selected rows receive their fill at the parent Box. Do not paint a terminal-default background over it.
+  return [text(left, cap), text(label, { color: pill.fg, bg: pill.bg, role: 'status' }), text(right, cap)]
+}
+const bellOf = (mode: GlyphMode) => mode === 'plain' ? '!' : '\uf0f3'
+
+/**
+ * A terminal may stretch a PUA glyph into a following ordinary space. NBSP is its documented one-cell
+ * constraint, so the bell's two-cell slot is both the shake track and a safe neighbour for Nerd glyphs.
+ * The bell rests left and shakes one cell right only (Owner, 2026-10-19): no gap opens before it.
+ */
+const bellSlotOf = (mode: GlyphMode, frame: 0 | 1 | 2): string => {
+  const bell = bellOf(mode)
+  return frame === 2 ? `\u00a0${bell}` : `${bell}\u00a0`
+}
 
 /**
  * The status slot at the right end of line 1 (I-6): the Needs you bell pill, the red Failed pill, yellow
- * Check? with the age, the Working spinner, the gray Done pill, else the age. It may be empty when no time is known.
+ * Background with the age, orange Check? with the age, the Working spinner, the gray Done pill, else the age. It may be empty when no time is known.
  */
-const slotOf = (c: CardInput): Seg[] => {
-  const { s, palette, now } = c
-  const age = s.statusSince > 0 ? ageLabel(s.statusSince, now) : undefined
-  if (c.snoozedUntil !== undefined) return [text(timeLeftLabel(c.snoozedUntil, now), { dim: true, role: 'status' })]
-  if (c.status === 'needs-you') {
-    const lead = c.woke ? [text('Woke ', { color: palette.text.green, role: 'status' })] : []
-    return [...lead, text(BELL_TEXT[c.bell], { color: palette.pill.red.fg, bg: palette.pill.red.bg, role: 'status' })]
+const statusSlotOf = (status: Status, since: number, now: number, palette: Palette, mode: GlyphMode, selected: boolean, woke = false, bell: 0 | 1 | 2 = 0, snoozedUntil?: number): Seg[] => {
+  const age = since > 0 ? ageLabel(since, now) : undefined
+  if (snoozedUntil !== undefined) return [text(timeLeftLabel(snoozedUntil, now), { dim: true, role: 'status' })]
+  if (status === 'needs-you') {
+    const lead = woke ? [text('Woke ', { color: palette.text.green, role: 'status' })] : []
+    return [...lead, ...pillOf(`${bellSlotOf(mode, bell)}Needs you\u00a0`, palette.pill.red, mode, selected)]
   }
-  if (c.status === 'failed') {
-    const lead = c.woke ? [text('Woke ', { color: palette.text.green, role: 'status' })] : []
-    return [...lead, text(' ✕ Failed ', { color: palette.pill.red.fg, bg: palette.pill.red.bg, role: 'status' })]
+  if (status === 'failed') {
+    const lead = woke ? [text('Woke ', { color: palette.text.green, role: 'status' })] : []
+    return [...lead, ...pillOf('✕ Failed ', palette.pill.red, mode, selected)]
   }
-  if (c.status === 'check') return [text('Check?', { color: palette.text.yellow, role: 'status' }), ...(age ? [text(` ${age}`, { dim: true, role: 'status' })] : [])]
-  if (c.status === 'working') {
-    const lead = c.woke ? [text('Woke ', { color: palette.text.green, role: 'status' })] : []
+  if (status === 'background') return [text(mode === 'nerd' ? '⚙' : '↻', { color: palette.text.green, role: 'status' }), text(' Background', { color: palette.text.green, role: 'status' }), ...(age ? [text(` ${age}`, { dim: true, role: 'status' })] : [])]
+  if (status === 'check') return [text('Check?', { color: palette.text.orange, role: 'status' }), ...(age ? [text(` ${age}`, { dim: true, role: 'status' })] : [])]
+  if (status === 'working') {
+    const lead = woke ? [text('Woke ', { color: palette.text.green, role: 'status' })] : []
     return [...lead, { kind: 'spinner' }, text(' Working', { color: palette.text.yellow, role: 'status' }), ...(age ? [text(` ${age}`, { dim: true, role: 'status' })] : [])]
   }
-  if (c.woke) return [text('Woke', { color: palette.text.green, role: 'status' })]
-  if (c.status === 'done') return [text(' ✓ Done ', { color: palette.pill.gray.fg, bg: palette.pill.gray.bg, role: 'status' })]
+  if (woke) return [text('Woke', { color: palette.text.green, role: 'status' })]
+  if (status === 'done') return pillOf('✓ Done ', palette.pill.gray, mode, selected)
   return age ? [text(age, { dim: true, role: 'status' })] : []
 }
+
+const slotOf = (c: CardInput): Seg[] => statusSlotOf(c.status, c.s.statusSince, c.now, c.palette, c.glyphMode, c.s.isSelf, c.woke, c.bell, c.snoozedUntil)
 
 /** The project name in muted text, as drawn with project colours off (the default); the icon keeps the colour. */
 const projectOf = (_c: CardInput, project: string): Seg => text(project, { dim: true, role: 'project' })
@@ -143,7 +167,9 @@ const ticketOf = (c: CardInput): { chip: Seg[]; title: string } => {
   const worktree = s.cwd?.split('/').filter(Boolean).at(-1) ?? null
   const match = parseTicketId({ title: s.title, branchName: s.branch ?? null, worktreeName: worktree }, c.tickets ?? [])
   if (!match) return { chip: [], title: s.title }
-  return { chip: [text(match.id, { color: palette.pill.gray.fg, bg: palette.pill.gray.bg }), text(' ')], title: match.titleRest || s.title }
+  const [left, right] = capsOf(c.glyphMode)
+  // The NBSP immediately after the right Nerd cap keeps a terminal from stretching it into the title gap.
+  return { chip: [text(left, { color: palette.pill.gray.bg }), text(match.id, { color: palette.pill.gray.fg, bg: palette.pill.gray.bg }), text(`${right}\u00a0`, { color: palette.pill.gray.bg })], title: match.titleRest || s.title }
 }
 
 /** Line 2: the ticket chip when one is found, then the title, cut with an ellipsis. */
@@ -177,11 +203,11 @@ export const line3Of = (c: CardInput, width: number): Seg[] => {
   let items: Item[] = []
   if (s.branch) items.push({ key: 'branch', segs: [text(`⎇ ${s.branch}`, { dim: true })] })
   if (s.isSelf && c.children.length > 0) {
-    const dots = sortChildren(c.children).slice(0, 3).map(child => text('●', { color: palette.text[TAG_HUE[child.tag]] }))
+    const dots = sortChildren(c.children).slice(0, 3).map(child => text('●', { color: palette.text[STATUS_HUE[child.status]] }))
     items.push({ key: 'badge', segs: [...dots, text(` ${c.children.length}`, { dim: true })] })
   }
   if (s.model) items.push({ key: 'model', segs: [text(s.model, { dim: true })] })
-  if (s.pr !== undefined) items.push({ key: 'pr', segs: [text(`#${s.pr}`, { dim: true })] })
+  if (s.pr !== undefined) items.push({ key: 'pr', segs: [text(`PR #${s.pr}`, { dim: true })] })
   if (s.contextPercent !== undefined) {
     const percent = Math.max(0, Math.round(s.contextPercent))
     items.push({ key: 'context', segs: [text(`${percent}%`, contextStyleOf(percent, s.contextTokens, c.softLimit, palette))] })
@@ -235,18 +261,26 @@ export const oneLineOf = (c: CardInput, width: number): Seg[] => {
 }
 
 /**
- * A child row: `  │ ● label … TAG age`. The tag and age carry role `status`; the rest is what the
- * view button draws. A waiting row has the warm tint on every run.
+ * A child row: `  │ ● label … glyph + status word`. A child row uses a label-sized status rather
+ * than a parent-card pill, which also keeps PUA caps out of this narrow row.
  */
-export const childRowOf = (child: Child, width: number, now: number, palette: Palette): { text: Seg[]; bg?: string } => {
-  const hue = palette.text[TAG_HUE[child.tag]]
-  const tail = [text(child.tag, { color: hue, role: 'status' }), text(` ${ageLabel(child.since, now)}`, { dim: true, role: 'status' })]
+const childStatusOf = (child: Child, now: number, palette: Palette, glyphMode: GlyphMode, bell: 0 | 1 | 2): Seg[] => {
+  const hue = palette.text[STATUS_HUE[child.status]]
+  const age = child.since > 0 ? ageLabel(child.since, now) : undefined
+  if (child.status === 'needs-you') return [text(`${bellSlotOf(glyphMode, bell)}Needs you`, { color: hue, role: 'status' })]
+  if (child.status === 'failed') return [text('✕ Failed', { color: hue, role: 'status' })]
+  if (child.status === 'done') return [text('✓ Done', { color: hue, role: 'status' })]
+  if (child.status === 'working') return [{ kind: 'spinner' }, text(' Working', { color: hue, role: 'status' }), ...(age ? [text(` ${age}`, { dim: true, role: 'status' })] : [])]
+  return age ? [text(age, { dim: true, role: 'status' })] : []
+}
+
+export const childRowOf = (child: Child, width: number, now: number, palette: Palette, glyphMode: GlyphMode = 'plain', bell: 0 | 1 | 2 = 0): { text: Seg[]; bg?: string } => {
+  const hue = palette.text[STATUS_HUE[child.status]]
+  const tail = childStatusOf(child, now, palette, glyphMode, bell)
   const head = [text('  '), text('│', { dim: true }), text(' '), text('●', { color: hue }), text(' ')]
   const room = width - sumOf(head) - sumOf(tail) - 1
   const label = room > 0 ? [text(fitCells(child.label, room))] : []
-  const line = fitSegs([...head, ...label, ...spaces(width - sumOf(head) - sumOf(label) - sumOf(tail)), ...tail], width)
-  if (child.tag !== 'WAITING') return { text: line }
-  return { text: line.map(seg => (seg.kind === 'text' ? { ...seg, bg: palette.waitingRow } : seg)), bg: palette.waitingRow }
+  return { text: fitSegs([...head, ...label, ...spaces(width - sumOf(head) - sumOf(label) - sumOf(tail)), ...tail], width) }
 }
 
 /**

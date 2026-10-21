@@ -8,6 +8,7 @@ import { sceneFrameAt, spinnerFrameAt } from '../core/animation'
 import { DEFAULT_COLOR } from '../core/raster'
 import { sceneCells, spinnerCells } from '../core/sprites'
 import { hexToColor } from '../core/types'
+import { ROW_HORIZONTAL_PADDING } from '../core/layout'
 import type { CardView, PaneView } from '../core/types'
 
 type Els = Pick<Elements['terminal'], 'Box' | 'Text' | 'Raster' | 'Image'>
@@ -28,11 +29,11 @@ export const iconOf = (els: Els, card: CardView): RenderElement[] => {
   return [shown, <Text key={`icon-gap:${card.id}`}> </Text>]
 }
 
-/** The one-cell Working spinner; on the own card its background is the card's fill. */
-export const spinnerOf = (els: Els, view: PaneView, card: CardView, tick: number): RenderElement => {
+/** The one-cell Working spinner; on the own card its background is the card's fill, on a child row the row's own background. */
+export const spinnerOf = (els: Els, view: PaneView, card: CardView, tick: number, id = card.id, rowBg?: string | null): RenderElement => {
   const { Raster } = els
-  const background = card.isSelected ? hexToColor(view.selectedFill) : DEFAULT_COLOR
-  return <Raster key={`spin:${card.id}`} columns={1} rows={1} cells={spinnerCells(spinnerFrameAt(tick), view.palette.text.yellow, background)} />
+  const background = rowBg !== undefined ? (rowBg ? hexToColor(rowBg) : DEFAULT_COLOR) : card.isSelected ? hexToColor(view.selectedFill) : DEFAULT_COLOR
+  return <Raster key={`spin:${id}`} columns={1} rows={1} cells={spinnerCells(spinnerFrameAt(tick), view.palette.text.yellow, background)} />
 }
 
 /** The empty-state scene: the art (when the terminal and the setting allow it) and its caption. */
@@ -43,10 +44,14 @@ export const sceneOf = (els: Els, view: PaneView, tick: number): RenderElement[]
   const out: RenderElement[] = []
   if (scene.showArt) {
     const { rows, cells } = sceneCells(scene.kind, sceneFrameAt(tick), scene.width, view.palette)
-    out.push(<Raster key="scene" columns={scene.width} rows={rows} cells={cells} />)
+    out.push(
+      <Box key="scene-row" width={view.width} paddingLeft={ROW_HORIZONTAL_PADDING} paddingRight={ROW_HORIZONTAL_PADDING}>
+        <Raster key="scene" columns={scene.width} rows={rows} cells={cells} />
+      </Box>,
+    )
   }
   out.push(
-    <Box key="scene-caption">
+    <Box key="scene-caption" width={view.width} paddingLeft={ROW_HORIZONTAL_PADDING} paddingRight={ROW_HORIZONTAL_PADDING}>
       <Text dimColor>{scene.caption}</Text>
     </Box>,
   )

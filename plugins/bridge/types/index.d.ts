@@ -27,8 +27,8 @@ export type IconLookup = { at: number; file?: string }
 export type Since = { status: string; at: number }
 
 /** Mirrors of the core shapes kept in plugin state (this contract is self-contained; core/types.ts is the source). */
-export type ChildTag = 'RUNNING' | 'WAITING' | 'DONE' | 'FAILED' | 'STOPPED'
-export type StateChild = { id: string; label: string; tag: ChildTag; since: number; startedAt: number }
+export type ChildStatus = 'working' | 'needs-you' | 'done' | 'failed' | 'idle'
+export type StateChild = { id: string; label: string; status: ChildStatus; since: number; startedAt: number }
 export type StateEntry = {
   isPinned?: true; isParked?: true; parkedAt?: number; isSettled?: true; settledAt?: number
   snoozedUntil?: number; snoozedAt?: number; wokeAt?: number; ackAt?: number; seenAt?: number
@@ -63,8 +63,10 @@ declare module 'claude-code' {
       listedSeen: Record<string, { raw: string; observedAt: number }>
       /** This session's subagents as child rows. */
       children: StateChild[]
-      /** Agent id to the tag it shows, since when, and when it was first seen. */
-      childSince: Record<string, { tag: string; since: number; startedAt: number }>
+      /** Agent id to the card status it shows, since when, and when it was first seen. */
+      childSince: Record<string, { status: string; since: number; startedAt: number }>
+      /** Engine tool-use id to a child interaction still waiting for the person. */
+      childInteractions: Record<string, { agentId: string; at: number }>
       /** Everything kept in `$.store`, read back each refresh. */
       stored: StateStored
       /** PrefId to when the session last finished. */
@@ -108,10 +110,16 @@ declare module 'claude-code' {
       mode: 'dark' | 'light'
       /** This pane's own terminal place, null while unknown. */
       own: StateTermPlace | null
-      /** This session's background tasks (subagents left out) at its last stop, each with when it was first seen; null while no source said. */
+      /** This session's background tasks in flight (subagents left out), each with when it was first seen; null while no source said. */
       selfBackground: StateBackgroundTask[] | null
       /** When this session's last turn ended on an API error (StopFailure); null after a turn that stopped well. */
       selfFailedAt: number | null
+      /** This session's context window from session usage, null while unknown. */
+      selfWindow: number | null
+      /** Whether this session's main loop has no turn running (turn.start / turn.complete); null while unknown. */
+      selfTurnOver: boolean | null
+      /** When this session's main loop last started or ended a turn; null while unknown. */
+      selfTurnAt: number | null
       /** This session's context use in percent, null while unknown. */
       selfContext: number | null
       /** The time of the last refresh, so ages redraw with it. */

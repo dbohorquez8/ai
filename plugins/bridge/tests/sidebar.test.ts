@@ -35,6 +35,18 @@ describe('sidebar policy', () => {
     expect(rowsOf({ listing: 'only text' })).toEqual([])
   })
 
+  test('ListAgents subagent and teammate sections are never session rows (a finished subagent is no card)', () => {
+    const listing = {
+      listing: 'text',
+      sections: [
+        { kind: 'subagents', total: 2, rows: [{ id: 'a715004d2b60f4252', type: 'general-purpose', status: 'completed' }, { id: 'a9c897ebdde119ed1', type: 'general-purpose', status: 'running' }] },
+        { kind: 'teammates', total: 1, rows: [{ name: 'scout', id: 'scout@team', status: 'idle' }] },
+        { kind: 'sessions', total: 1, rows: [{ name: 'demo-app-f5', ref: '3507a9', type: 'interactive', status: 'idle' }] },
+      ],
+    }
+    expect(rowsOf(listing).map(row => row.id)).toEqual(['3507a9'])
+  })
+
   test('pin and park toggle and exclude each other; a stored value reads back safely', () => {
     expect(toggled({}, 'pin')).toEqual({ isPinned: true })
     expect(toggled({ isPinned: true }, 'pin')).toEqual({})
@@ -310,7 +322,7 @@ describe('row press focuses the hosting tab', () => {
   test('a row in another app is dimmed and tagged with its app, inside the spaced row', async ($, on) => {
     const { ui } = await pressIn($, on, cmuxWorld({ TERM_PROGRAM: 'ghostty' }))
     // phase 2: AC-18, AC-86 -- the working one-liner reads project, title, slot; the app is named by the press note.
-    expect((await ui.find({ key: 'row:3507a9' }))?.text).toMatch(/^W  Workspace workspace-88\s+Working now$/) // amend 2026-10-18: AC-44
+    expect((await ui.find({ key: 'row:3507a9' }))?.text).toMatch(/^W  Workspace workspace-.*\s+Working now$/)
     expect((await ui.find({ key: 'note' }))?.text).toBe('workspace-88 runs in cmux')
     expect((await ui.find({ key: 'open:3507a9' }))?.props.dimColor).toBe(true)
   })

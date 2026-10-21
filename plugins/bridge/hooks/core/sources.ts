@@ -6,7 +6,7 @@ import type { Place, Row, Title } from '../../types'
 import type { RegistryEntry } from '../sidebar-policy'
 import { prefIdOf } from '../sidebar-policy'
 import { cardTextOf } from '../card-policy'
-import { mergedStatusOf } from './status'
+import { mergedStatusOf, steadySinceOf } from './status'
 import type { BackgroundTask, Session } from './types'
 
 export const AGENTS_ARGV: readonly string[] = ['claude', 'agents', '--json']
@@ -51,7 +51,7 @@ const FAMILIES = ['opus', 'sonnet', 'haiku', 'fable'] as const
 /** The full model id in a `"model":"…"` match, lower case; undefined when it is not a plain id. */
 export const modelIdOf = (line: string): string | undefined => {
   const id = /"model"\s*:\s*"([^"]*)"/.exec(line)?.[1]?.trim().toLowerCase()
-  return id && /^[a-z0-9][a-z0-9._:/-]*$/.test(id) ? id : undefined
+  return id && /^[a-z0-9][a-z0-9._:/-]*(\[1m\])?$/.test(id) ? id : undefined
 }
 
 export const modelOf = (line: string): string | undefined => {
@@ -100,11 +100,21 @@ export const sessionsOf = (input: {
   prs: Readonly<Record<string, number>>
   selfId: string
   selfContext?: number
-  /** The own session's background tasks at its last stop, subagents left out; absent when no source said. */
+  /** The own session's background tasks in flight, subagents left out; absent when no source said. */
   selfBackground?: readonly BackgroundTask[]
   /** When the own session's last turn ended on an API error; absent when it did not. */
   selfFailedAt?: number
+  /** The own session's context window from session usage; absent while unknown. */
+  selfWindow?: number
+  /** Whether the own session's main loop has no turn running; absent while unknown. */
+  selfTurnOver?: boolean
+  /** When the own session's main loop last started or ended a turn; absent while unknown. */
+  selfTurnAt?: number
+  /** Newest active subagent permission/question prompt, from engine interaction events. */
+  selfChildNeedAt?: number
   away: Readonly<Record<string, string>>
+  /** The status and its start each card showed at the last refresh, by prefId: the age stays steady while the word does. */
+  since?: Readonly<Record<string, { status: string; at: number }>>
 }): Session[] => {
   const byId = new Map<string, RegistryEntry>()
   for (const entry of input.registry) byId.set(entry.sessionId, entry)
@@ -158,7 +168,11 @@ export const sessionsOf = (input: {
     const pr = cwd && text.branch ? input.prs[`${cwd}\u0000${text.branch}`] : undefined
     const contextPercent = isSelf ? input.selfContext : (entry?.contextPercent ?? percentOf(sessionId ? input.contexts?.[sessionId] : undefined, input.windows))
     const transcript = sessionId ? input.contexts?.[sessionId] : undefined
-    const selfWindow = isSelf && transcript ? input.windows?.[transcript.model] : undefined
+    const modelWindow = transcript ? input.windows?.[transcript.model] : undefined
+    const selfWindow = isSelf && transcript ? modelWindow : undefined
+    // A plain model id names a 200k and a 1M window alike (only some transcripts add `[1m]`), so another
+    // session's window above 200k counts only under an id that carries the marker; otherwise the smaller default.
+    const contextWindow = isSelf ? (input.selfWindow ?? modelWindow) : (modelWindow !== undefined && (modelWindow <= 200_000 || transcript?.model.endsWith('[1m]') === true) ? modelWindow : undefined)
     // The own count follows the live percentage when its window is known, so number and colour agree.
     const contextTokens = isSelf && input.selfContext !== undefined && selfWindow ? Math.round((input.selfContext / 100) * selfWindow) : transcript?.tokens
     const away = input.away[source.id] ?? (sessionId ? input.away[sessionId] : undefined)
@@ -170,13 +184,14 @@ export const sessionsOf = (input: {
       name: source.name,
       activityAt: known.length ? Math.max(...known) : 0,
       raw: merged.raw,
-      statusSince: merged.since,
+      statusSince: steadySinceOf(input.since?.[prefId], merged.raw, merged.since, isSelf ? input.selfTurnAt : undefined),
       title: text.title,
       project: text.project,
       isSelf,
     }
     const sharedSince = positive(entry || row ? registrySince : listed?.startedAt)
     if (sharedSince !== undefined) session.sharedSince = sharedSince
+    if (entry || row) session.sharedRaw = registryRaw
     if (sessionId) session.sessionId = sessionId
     if (cwd) session.cwd = cwd
     if (pid !== undefined) session.pid = pid
@@ -188,9 +203,12 @@ export const sessionsOf = (input: {
     if (pr !== undefined) session.pr = pr
     if (contextPercent !== undefined) session.contextPercent = contextPercent
     if (contextPercent !== undefined && contextTokens !== undefined) session.contextTokens = contextTokens
+    if (contextWindow !== undefined && contextWindow > 0) session.contextWindow = contextWindow
     if (away) session.away = away
     if (isSelf && input.selfBackground !== undefined) session.background = input.selfBackground
     if (isSelf && input.selfFailedAt !== undefined) session.failedAt = input.selfFailedAt
+    if (isSelf && input.selfTurnOver !== undefined) session.isTurnOver = input.selfTurnOver
+    if (isSelf && input.selfChildNeedAt !== undefined) session.childNeedAt = input.selfChildNeedAt
     return session
   })
 }

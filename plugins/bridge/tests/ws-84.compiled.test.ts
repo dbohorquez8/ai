@@ -40,7 +40,7 @@ const S = (name: string, x: Omit<Sess, 'name'> = {}): Sess => ({ name, ...x })
 
 type World = {
   now?: number; store?: Map<string, unknown>; selfName?: string; agents?: unknown[]; env?: Record<string, string>
-  term?: 'ghostty' | 'unknown'; truecolor?: boolean; copies?: string[]; toasts?: string[]; ran?: string[][]; reads?: string[][]
+  term?: 'ghostty' | 'unknown'; truecolor?: boolean; copies?: string[]; toasts?: string[]; views?: Array<Record<string, unknown>>; ran?: string[][]; reads?: string[][]
   focusCalls?: string[]; focusFails?: string; focusAnswer?: string; gh?: 'ok' | 'absent'; ghCalls?: string[][]; registryRaw?: string; listingBroken?: boolean
   transcriptReads?: number; storeRaw?: string; hidden?: boolean
   /** Every `$.process.run`, counted (AC-109); every `$.ui.blit` the pane sent (AC-20a, AC-43, AC-111 to AC-113). */
@@ -51,6 +51,8 @@ type World = {
   theme?: string
   // amend 2026-10-18: AC-42 -- files `$.fs` sees (path to mtime), and each icon conversion the pane ran.
   files?: Record<string, number>; converts?: string[][]
+  /** Rows of a ListAgents `subagents` section (the own session's agent loops). */
+  subagentRows?: unknown[]
 }
 const PANE_PROPS = (cols: number, placement: 'dock' | 'inline' = 'dock') => ({
   title: 'Bridge', isFocused: false, bodyColumns: cols, placement, scroll: { offset: 0, bodyRows: 40 }, view: {},
@@ -62,9 +64,12 @@ const registryOf = (sessions: Sess[], now: number) =>
     sessionId: idOf(s.name), cwd: s.cwd ?? `/p/${s.name}`, kind: 'interactive', name: s.name, status: s.status ?? 'idle', reason: s.reason,
     contextPercent: s.ctx,
   })).join(REGISTRY_SEPARATOR) + REGISTRY_SEPARATOR
-const listingOf = (sessions: Sess[]) => ({
+const listingOf = (sessions: Sess[], subagentRows: unknown[] = []) => ({
   listing: 'text',
-  sections: [{ kind: 'sessions', total: sessions.length, rows: sessions.map(s => ({ name: s.name, ref: refOf(s.name), status: s.status ?? 'idle' })) }],
+  sections: [
+    ...(subagentRows.length ? [{ kind: 'subagents', total: subagentRows.length, rows: subagentRows }] : []),
+    { kind: 'sessions', total: sessions.length, rows: sessions.map(s => ({ name: s.name, ref: refOf(s.name), status: s.status ?? 'idle' })) },
+  ],
 })
 // phase 2: AC-95 -- a session with no app of its own runs in the pane's terminal (an unknown one in the unknown world).
 const probeOf = (sessions: Sess[], term: World['term'] = 'ghostty') => sessions.map((s, i) => {
@@ -96,7 +101,7 @@ const engine = (on: On, sessions: Sess[], world: World) => {
   on('store.keys', () => ({ value: [...store().keys()] }) as never)
   on('session.start', ($s, e) => ({ cwd: e.cwd }) as never)
   on('session.id', () => ({ value: idOf(self()) }))
-  on('tool.call', { tool: 'ListAgents' }, () => ({ result: current.world.listingBroken ? { listing: 'text', sections: [{ kind: 'sessions', rows: current.sessions.map(s => ({ name: s.name })) }] } : listingOf(current.sessions) }) as never)
+  on('tool.call', { tool: 'ListAgents' }, () => ({ result: current.world.listingBroken ? { listing: 'text', sections: [{ kind: 'sessions', rows: current.sessions.map(s => ({ name: s.name })) }] } : listingOf(current.sessions, current.world.subagentRows) }) as never)
   on('agent.list', () => ({ value: current.world.agents ?? [] }) as never)
   // phase 2: AC-93 -- the own card's context comes from $.session.usage().
   on('session.usage', () => {
@@ -110,6 +115,7 @@ const engine = (on: On, sessions: Sess[], world: World) => {
     return { value: current.world.hidden ? { deny: 'not mounted' } : {} } as never
   })
   on('ui.copy', ($s, e) => (current.world.copies?.push((e as { text: string }).text), { value: { isCopied: true } }) as never)
+  on('ui.view', ($s, e, next) => (current.world.views ? (current.world.views.push(e as Record<string, unknown>), { value: {} }) : next(e)) as never)
   on('ui.toast', ($s, e) => (current.world.toasts?.push((e as { text: string }).text), { value: undefined }) as never)
   on('ui.open', () => ({ value: { isPlaced: true } }) as never)
   on('command.register', () => ({ value: undefined }) as never)
@@ -241,7 +247,7 @@ describe('1. shelf headers', () => {
       const { ui } = await mountPane($, on, [S('alpha')], {}, cols)
       const header = await headerText(ui, 'active')
       expect(header).toMatch(/^Active ─+/)
-      expect([...header].length).toBe(cols)
+      expect([...header].length).toBe(cols - 2)
     }
   })
   test('AC-01c Owner glances at a shelf header (chevron at the right end)', async ($, on) => {
@@ -312,9 +318,9 @@ describe('2. cards', () => {
     for (const cols of [44, 70]) {
       const { ui } = await mountPane($, on, [S('alpha', { status: 'waiting' })], {}, cols)
       const first = (await rowText(ui, 'alpha')).split('\n')[0]!
-      expect(first).toMatch(/Needs you\s*$/)
+      expect(first).toMatch(/Needs you\u00a0\ue0b4\s*$/)
       // amend 2026-10-18: AC-41 -- line 1, icon included, fills the pane exactly.
-      expect(cellWidth(first)).toBe(cols)
+      expect(cellWidth(first)).toBe(cols - 2)
     }
   })
   test('AC-11 Owner reads line 2 (title in normal text colour)', async ($, on) => {
@@ -338,7 +344,7 @@ describe('2. cards', () => {
     // phase 2: AC-13 -- the model comes from the transcript's model field; the PR lookup's first run is 60 s after start.
     const { ui, clock } = await mountPane($, on, [S('alpha', { branch: 'feat', ctx: 40, model: 'claude-opus-5-5' })], world, 90)
     await clock.advance(61_000); await ui.advance(61_000)
-    expect((await rowText(ui, 'alpha')).split('\n')[2]).toMatch(/●.*(opus|sonnet|haiku).*#42.*40%/i)
+    expect((await rowText(ui, 'alpha')).split('\n')[2]).toMatch(/●.*(opus|sonnet|haiku).*PR #42.*40%/i)
   })
   test('AC-14 Owner narrows the pane (details drop from the end; the branch drops last)', async ($, on) => {
     const world: World = { agents: [AGENT('s1', 'running', 'Scan')] }
@@ -347,7 +353,7 @@ describe('2. cards', () => {
       const { ui } = await mountPane($, on, [S('alpha', { branch: 'feat', ctx: 40 })], world, cols)
       const line = (await rowText(ui, 'alpha')).split('\n')[2] ?? ''
       if (/feat/.test(last) === false && last !== '') expect(line).not.toMatch(/feat/)
-      if (/feat/.test(line)) { expect(line).toBeDefined() } else { expect(line).not.toMatch(/40%|#42/) }
+      if (/feat/.test(line)) { expect(line).toBeDefined() } else { expect(line).not.toMatch(/40%|PR #42/) }
       last = line
     }
   })
@@ -391,11 +397,11 @@ describe('2. cards', () => {
   })
   test('AC-19b Session in another terminal app (app name on line 1; the status slot keeps the right edge)', async ($, on) => {
     const wide = await mountPane($, on, [S('mine'), S('other', { app: 'tmux', status: 'waiting' })], {}, 70)
-    expect((await rowText(wide.ui, 'other')).split('\n')[0]).toMatch(/^(?!.*tmux).*Needs you\s*$/) // amend 2026-10-18: AC-19 -- no terminal app is named
+    expect((await rowText(wide.ui, 'other')).split('\n')[0]).toMatch(/^(?!.*tmux).*Needs you\u00a0\ue0b4\s*$/)
     const narrow = await mountPane($, on, [S('mine'), S('other', { app: 'tmux', status: 'waiting' })], {}, 26) // amend 2026-10-18: AC-41 -- the icon no longer narrows line 1 at 30
     const line = (await rowText(narrow.ui, 'other')).split('\n')[0]!
     expect(line).not.toMatch(/tmux/)
-    expect(line).toMatch(/Needs you\s*$/)
+    expect(line).toMatch(/Needs you\u00a0\ue0b4\s*$/)
   })
 })
 
@@ -414,6 +420,12 @@ describe('1b. working shelf setting', () => {
     expect(await sidebarCommand($, 'working-shelf off')).toMatchObject({ text: 'Working shelf: off' }) // amend 2026-10-18: AC-08a
     expect(store.get('setting:workingShelf')).toBe(false)
     expect((await orderOf(restarted.ui)).active).toContain(refOf('w'))
+  })
+  test('AC-08d "/bridge glyphs auto|nerd|plain" persists the override; plain keeps capped pills readable', async ($, on) => {
+    const { ui, store } = await mountPane($, on, [S('alpha', { status: 'waiting' })])
+    expect(await sidebarCommand($, 'glyphs plain')).toMatchObject({ text: 'Glyphs: plain' })
+    expect(store.get('setting:glyphs')).toBe('plain')
+    expect(await rowText(ui, 'alpha')).toMatch(/▐[!\u00a0]+Needs you\u00a0▌/)
   })
   // amend 2026-10-18: AC-08a, AC-45 -- an unknown argument changes nothing and names the forms.
   test('AC-08a, AC-45 "/bridge" with an unknown argument (error naming the forms; nothing stored)', async ($, on) => {
@@ -458,17 +470,32 @@ describe('3. status slot', () => {
     const { ui } = await mountPane($, on, [S('alpha', { status: 'busy', sinceMs: 5 * MIN })])
     expect(await rowText(ui, 'alpha')).toMatch(/Working 5m/)
   })
+  // amend 2026-10-19: live defect D4 -- the registry rewrites its status time while the word stays `busy`; the age still grows.
+  test('D4 A working card whose registry rewrites its status time keeps counting from when it started working', async ($, on) => {
+    const sessions = [S('mine', { status: 'busy', sinceMs: 0 })]
+    const { ui, clock } = await mountPane($, on, sessions)
+    for (let i = 1; i <= 36; i++) {
+      sessions[0]!.sinceMs = -i * 5000
+      await clock.advance(5000); await ui.advance(5000)
+    }
+    expect(await rowText(ui, 'mine')).toMatch(/Working 3m/)
+    sessions[0]!.status = 'idle'
+    sessions[0]!.sinceMs = -37 * 5000
+    await clock.advance(5000); await ui.advance(5000)
+    expect(await rowText(ui, 'mine')).not.toMatch(/Working/)
+  })
   test('AC-21 Session needs me (filled pill "Needs you" with bell)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { status: 'waiting' })])
-    expect(await rowText(ui, 'alpha')).toMatch(/[⠼⢼][⡿⠿⢿]⠄\s*Needs you/) // amend 2026-10-18: AC-21 -- braille bell takes the pill's red
+    expect(await rowText(ui, 'alpha')).toMatch(/\ue0b6(?:\uf0f3|\u00a0)+Needs you\u00a0\ue0b4/)
   })
-  test('AC-22 Pane is shown with a needs-you card (bell wobbles once per 4 s)', async ($, on) => {
+  test('AC-22 Pane is shown with a needs-you card (bell shakes sideways once per 4 s without moving the word)', async ($, on) => {
     const { ui, clock } = await mountPane($, on, [S('alpha', { status: 'waiting' })])
     const seen: string[] = []
-    for (let s = 0; s < 12; s++) { seen.push((await rowText(ui, 'alpha')).split('\n')[0]!); await clock.advance(1000); await ui.advance(1000) }
+    for (let s = 0; s < 4; s++) { seen.push((await rowText(ui, 'alpha')).split('\n')[0]!); await clock.advance(200); await ui.advance(200) }
     const changes = seen.filter((one, i) => i > 0 && one !== seen[i - 1]).length
-    expect(changes).toBeGreaterThanOrEqual(3)
-    expect(changes).toBeLessThanOrEqual(6)
+    expect(changes).toBe(3)
+    expect(new Set(seen.map(one => cellWidth(one))).size).toBe(1)
+    expect(new Set(seen.map(one => one.indexOf('Needs you'))).size).toBe(1)
   })
   // amend 2026-10-18: AC-23 -- the needs-you reason is not drawn; line 3 leads with the branch.
   test('AC-23 Needs-you card line 3 (no reason; the branch at the left)', async ($, on) => {
@@ -507,6 +534,82 @@ describe('3. status slot', () => {
 // ---------------------------------------------------------------- 4. Selected card and child rows
 describe('4. selected card and child rows', () => {
   const OWN = (extra: Omit<Sess, 'name'> = {}) => S('own', extra)
+  test('AC-28b selected fill is pane-wide, content is inset one cell, and half-row edges frame the card', async ($, on) => {
+    const fill = snapToRasterGrid(PALETTES.dark.fill)
+    for (const [cols, glyphs] of [[44, 'plain'], [44, 'nerd'], [12, 'plain'], [12, 'nerd']] as const) {
+      const store = new Map<string, unknown>([['setting:glyphs', glyphs]])
+      const { ui } = await mountPane($, on, [OWN({ status: 'waiting' }), S('other')], { store }, cols)
+      const own = refOf('own')
+      const top = await ui.find({ key: `card-top:${own}` })
+      const bottom = await ui.find({ key: `card-bottom:${own}` })
+      for (const [row, glyph] of [[top, '\u2584'], [bottom, '\u2580']] as const) {
+        expect(row?.props.width).toBe(cols)
+        expect(row?.props.backgroundColor).toBeUndefined()
+        expect(row?.text).toBe(glyph.repeat(cols))
+        expect((await ui.find({ key: row!.key }))?.props.width).toBe(cols)
+      }
+      expect((await ui.findAll({ color: fill })).map((one: any) => one.text)).toEqual(expect.arrayContaining(['\u2584'.repeat(cols), '\u2580'.repeat(cols)]))
+      expect((await ui.find({ key: `row:${own}` }))?.props.width).toBe(cols)
+      expect((await ui.find({ key: `row:${own}` }))?.props.backgroundColor).toBe(fill)
+      expect((await ui.find({ key: `header:active` }))?.props.width).toBe(cols)
+      expect((await linesById(ui, own)).split('\n')).toHaveLength(3)
+      for (const line of (await linesById(ui, own)).split('\n')) expect([...line].length).toBe(Math.max(0, cols - 2))
+      // An unselected card has no edge rows and no fill.
+      expect(await ui.find({ key: `card-top:${refOf('other')}` })).toBeUndefined()
+      expect(await ui.find({ key: `card-bottom:${refOf('other')}` })).toBeUndefined()
+      expect((await ui.find({ key: `row:${refOf('other')}` }))?.props.backgroundColor).toBeUndefined()
+      const empty = await mountPane($, on, [], {}, cols)
+      expect((await empty.ui.find({ key: 'scene-caption' }))?.props.width).toBe(cols)
+      if (cols >= 30) expect((await empty.ui.find({ key: 'scene-row' }))?.props.width).toBe(cols)
+    }
+  })
+  test('AC-28c unselected full cards are three rows with one blank row between; the selected edges take the gap rows', async ($, on) => {
+    // own (selected) first: ▄ above it with no gap row; the ▀ row stands in for the gap before the next card.
+    const first = await mountPane($, on, [OWN({ ageMs: 0 }), S('other', { ageMs: MIN }), S('third', { ageMs: 2 * MIN })])
+    const marginOf = async (ui: any, id: string) => (await ui.find({ key: `card:${refOf(id)}` }))?.props.marginTop ?? 0
+    expect(await marginOf(first.ui, 'own')).toBe(0)
+    expect(await marginOf(first.ui, 'other')).toBe(0)
+    expect(await marginOf(first.ui, 'third')).toBe(1)
+    for (const id of ['other', 'third']) expect((await linesById(first.ui, refOf(id))).split('\n')).toHaveLength(3)
+    // own in the middle: ▄ replaces its own gap, ▀ replaces the next card's.
+    const middle = await mountPane($, on, [S('other', { ageMs: 0 }), OWN({ ageMs: MIN }), S('third', { ageMs: 2 * MIN })], { selfName: 'own' })
+    expect(await marginOf(middle.ui, 'other')).toBe(0)
+    expect(await marginOf(middle.ui, 'own')).toBe(0)
+    expect(await marginOf(middle.ui, 'third')).toBe(0)
+    const order = (await middle.ui.findAll({})).map((one: any) => one.key).filter(Boolean)
+    const at = (key: string) => order.indexOf(key)
+    expect(at(`row:${refOf('other')}`)).toBeLessThan(at(`card-top:${refOf('own')}`))
+    expect(at(`card-top:${refOf('own')}`)).toBeLessThan(at(`row:${refOf('own')}`))
+    expect(at(`row:${refOf('own')}`)).toBeLessThan(at(`card-bottom:${refOf('own')}`))
+    expect(at(`card-bottom:${refOf('own')}`)).toBeLessThan(at(`row:${refOf('third')}`))
+  })
+  test('AC-28c with child rows the ▀ row comes first, the children follow it unfilled, and the next card keeps its gap', async ($, on) => {
+    const { ui } = await mountPane($, on, [OWN(), S('other')], { agents: [AGENT('a1', 'running', 'Scan')] })
+    const own = refOf('own')
+    const order = (await ui.findAll({})).map((one: any) => one.key).filter(Boolean)
+    expect(order.indexOf(`card-bottom:${own}`)).toBeLessThan(order.indexOf('child:a1'))
+    expect(order.indexOf('child:a1')).toBeLessThan(order.indexOf(`row:${refOf('other')}`))
+    expect((await ui.find({ key: 'child:a1' }))?.props.width).toBe(44)
+    expect((await ui.find({ key: 'child:a1' }))?.props.backgroundColor).toBeUndefined()
+    expect((await ui.find({ key: `card:${refOf('other')}` }))?.props.marginTop).toBe(1)
+  })
+  // amend 2026-10-20: guide review F7 -- the first frame of a child-row spinner matches its blits: the row background, not the card fill.
+  test('F7 a Working child row under the selected own card draws its first spinner frame off the selected fill', async ($, on) => {
+    const { ui } = await mountPane($, on, [OWN()], { agents: [AGENT('a1', 'running', 'Scan')] })
+    const spin = await ui.find({ key: 'spin:a1' })
+    expect(spin).toBeDefined()
+    const onFill = new Set(Object.values(PALETTES).flatMap(shade => Array.from({ length: 10 }, (_, f) => spinnerCells(f, shade.text.yellow, hexToColor(snapToRasterGrid(shade.fill))))))
+    const offFill = new Set(Object.values(PALETTES).flatMap(shade => Array.from({ length: 10 }, (_, f) => spinnerCells(f, shade.text.yellow, 0x01000000))))
+    expect(onFill.has(spin!.props.cells)).toBe(false)
+    expect(offFill.has(spin!.props.cells)).toBe(true)
+  })
+  test('AC-28b compact Working cards keep their one-line form', async ($, on) => {
+    const { ui } = await mountPane($, on, [OWN({ status: 'busy' })], { store: new Map<string, unknown>([SHELF_ON]) })
+    const own = refOf('own')
+    expect(await ui.find({ key: `card-top:${own}` })).toBeUndefined()
+    expect(await ui.find({ key: `card-bottom:${own}` })).toBeUndefined()
+    expect((await linesById(ui, own)).split('\n')).toHaveLength(1)
+  })
   test('AC-30 Own session has subagents (child rows indented behind a vertical rule)', async ($, on) => {
     const { ui } = await mountPane($, on, [OWN()], { agents: [AGENT('a1', 'running', 'Scan'), AGENT('a2', 'running', 'Read')] })
     const kids = await ui.findAll({ key: 'view:a1' })
@@ -516,28 +619,20 @@ describe('4. selected card and child rows', () => {
     const { ui } = await mountPane($, on, [OWN()], { agents: [AGENT('a1', 'running', 'Scan repo')] })
     expect((await ui.find({ key: 'view:a1' }))?.text).toMatch(/●.*Scan repo/)
   })
-  test('AC-31b Reading a child row (uppercase tag and time in state)', async ($, on) => {
+  test('AC-31b Reading a child row (card status word and time in state)', async ($, on) => {
     const { ui } = await mountPane($, on, [OWN()], { agents: [AGENT('a1', 'running', 'Scan', { statusSince: TUE_10 - 2 * MIN })] })
-    // phase 2: AC-31b -- the tag and age sit beside the view button, in the child row.
-    expect((await ui.find({ key: 'child:a1' }))?.text).toMatch(/RUNNING.*2m/)
+    expect((await ui.find({ key: 'child:a1' }))?.text).toMatch(/Working.*2m/)
   })
-  test('AC-32 Reading states (tag and dot colours per state)', async ($, on) => {
-    const colors: Record<string, string> = {}
-    const states: [string, string][] = [['running', 'RUNNING'], ['waiting', 'WAITING'], ['completed', 'DONE'], ['failed', 'FAILED'], ['killed', 'STOPPED']]
+  test('AC-32 Reading states (the card status words and look)', async ($, on) => {
+    const states: [string, string][] = [['running', 'Working'], ['waiting', 'Working'], ['completed', 'Done'], ['failed', 'Failed'], ['killed', '']]
     const { ui } = await mountPane($, on, [OWN()], { agents: states.map(([s], i) => AGENT(`k${i}`, s, `d${i}`)) })
-    for (const [, tag] of states) colors[tag] = ((await ui.findAll({ type: 'Text' })).find((one: any) => one.text === tag)?.props.color ?? '') as string
-    // phase 2: AC-32 -- tag colours are the palette's hex values (dark: no readable Claude theme).
-    expect(colors.RUNNING).toBe(PALETTES.dark.text.blue)
-    expect(colors.WAITING).toBe(PALETTES.dark.text.orange)
-    expect(colors.DONE).toBe(colors.STOPPED)
-    expect(colors.DONE).toBe(PALETTES.dark.text.gray)
-    expect(colors.FAILED).toBe(PALETTES.dark.text.red)
-  })
-  test('AC-33 Subagent waiting (warm tint across the whole row; running rows have none)', async ($, on) => {
-    const { ui } = await mountPane($, on, [OWN()], { agents: [AGENT('w', 'waiting', 'Wait'), AGENT('r', 'running', 'Run')] })
-    // phase 2: AC-33 -- the tint is on the whole child row.
-    expect((await ui.find({ key: 'child:w' }))?.props.backgroundColor).toBe(PALETTES.dark.waitingRow)
-    expect((await ui.find({ key: 'child:r' }))?.props.backgroundColor).toBeFalsy()
+    const text = (await Promise.all(states.map((_, i) => ui.find({ key: `child:k${i}` })))).map(row => row?.text ?? '')
+    expect(text[0]).toMatch(/Working/)
+    expect(text[1]).toMatch(/Working/)
+    expect(text[2]).toMatch(/Done/)
+    expect(text[3]).toMatch(/Failed/)
+    expect(text[4]).not.toMatch(/Working|Done|Failed/)
+    expect((await ui.find({ key: 'child:k1' }))?.props.backgroundColor).toBeFalsy()
   })
   test('AC-34a Own card line 3 (one dot per subagent, up to 3)', async ($, on) => {
     const { ui } = await mountPane($, on, [OWN()], { agents: [AGENT('a1', 'running', 'A'), AGENT('a2', 'running', 'B')] }, 70)
@@ -624,11 +719,12 @@ describe('5. colours', () => {
     expect(store.get('setting:theme')).toBe('auto')
     expect(await textColorOf(ui, ' Working')).toBe(PALETTES.dark.text.yellow)
   })
+  // The selected card's half-row edges (runs of ▄ or ▀) are fill-coloured decoration, not text, so they are skipped below.
   test('AC-39 Contrast (every drawn colour reaches 4.5:1 on the pane background and the own-card fill)', async ($, on) => {
     for (const theme of ['dark', 'light'] as const) {
       const shade = PALETTES[theme]
       const { ui } = await mountPane($, on, [S('mine', { branch: 'main', ctx: 90 }), S('w', { status: 'busy', cwd: '/p/zeta' }), S('n', { status: 'waiting', cwd: '/p/kappa' })], { theme, agents: [AGENT('a1', 'running', 'A'), AGENT('a2', 'waiting', 'B')] }, 70)
-      const colors: string[] = (await ui.findAll({ type: 'Text' })).map((one: any) => one.props.color as string | undefined).filter((one: string | undefined): one is string => /^#/.test(one ?? ''))
+      const colors: string[] = (await ui.findAll({ type: 'Text' })).filter((one: any) => !['\ue0b6', '\ue0b4', '▐', '▌'].includes(one.text) && !/^[▄▀]+$/.test(one.text)).map((one: any) => one.props.color as string | undefined).filter((one: string | undefined): one is string => /^#/.test(one ?? ''))
       expect(colors.length).toBeGreaterThan(3)
       for (const color of new Set(colors)) {
         const against = (await ui.findAll({ type: 'Text' })).find((one: any) => one.props.color === color)?.props.backgroundColor as string | undefined
@@ -663,7 +759,7 @@ describe('6. project icons and empty states', () => {
     expect(lines[0]).toMatch(/^A  alpha/)
     expect(lines[1]).toMatch(/^Fix it/)
     expect(lines[2]).toMatch(/^⎇ main/)
-    for (const line of lines) expect(cellWidth(line)).toBe(44)
+    for (const line of lines) expect(cellWidth(line)).toBe(42)
     const mono = await ui.find({ key: `monogram:${refOf('alpha')}` })
     expect(mono?.text).toBe('A ')
   })
@@ -709,7 +805,7 @@ describe('6. project icons and empty states', () => {
     const line = await rowText(ui, 'w')
     expect(line.split('\n').length).toBe(1)
     expect(line).toMatch(/^W  w /)
-    expect(cellWidth(line)).toBe(43) // the one-cell spinner Raster has no text in the harness
+    expect(cellWidth(line)).toBe(41) // the one-cell spinner Raster has no text in the harness
     expect(await iconKindOf(ui, 'w')).toBe('monogram')
   })
   // amend 2026-10-18: AC-45 -- the setting is `/bridge icons on|off`; the pane has no settings rows.
@@ -733,7 +829,7 @@ describe('6. project icons and empty states', () => {
     expect(lines[0]).toMatch(/^alpha/)
     expect(lines[1]).toMatch(/^\S/)
     expect(await iconKindOf(ui, 'alpha')).toBe('none')
-    expect([...lines[0]!].length).toBe(44)
+    expect([...lines[0]!].length).toBe(42)
   })
   test('AC-11a A Done card (finished, not yet seen) has a bold title', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine'), S('d', { status: 'completed', title: 'Shipped it' }), S('i', { title: 'Resting' })])
@@ -764,7 +860,7 @@ describe('6. project icons and empty states', () => {
     }
   })
   // amend 2026-10-19: AC-13a -- WS-84 gaps AC-G3 to AC-G5: background tasks are live rows under the own card, not a `⟳ n` count.
-  test('AC-13a The own card lists its background tasks as rows and shows Check?; no source, no rows', async ($, on) => {
+  test('AC-13a The own card lists its background tasks as rows and shows Background; no source, no rows', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine', { branch: 'feat' })])
     expect(await rowText(ui, 'mine')).not.toContain('Check?')
     await $.classic.Stop({ stop_hook_active: false } as never)
@@ -773,14 +869,143 @@ describe('6. project icons and empty states', () => {
     await $.classic.Stop({ stop_hook_active: false, background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'npm test', command: 'npm test' }, { id: 'b2', type: 'subagent', status: 'running', description: 'x' }, { id: 'b3', type: 'monitor', status: 'running', description: 'y' }] } as never)
     await ui.advance(10)
     expect(await rowText(ui, 'mine')).not.toContain('⟳')
-    expect(await rowText(ui, 'mine')).toContain('Check?')
+    expect(await rowText(ui, 'mine')).toContain('Background')
     expect(await ui.find({ key: 'task:b1' })).toBeDefined()
     expect(await ui.find({ key: 'task:b3' })).toBeDefined()
     expect(await ui.find({ key: 'task:b2' })).toBeUndefined()
     await $.classic.Stop({ stop_hook_active: false, background_tasks: [] } as never)
     await ui.advance(10)
     expect(await ui.find({ key: 'task:b1' })).toBeUndefined()
+    expect(await rowText(ui, 'mine')).not.toMatch(/Background|Check\?/)
+  })
+  // amend 2026-10-19: live defect D1 -- a managed plugin can send classic.Stop past every installed plugin, so the
+  // own background list comes from the tool calls that start a task and the notifications that end it.
+  test('D1 Background work is tracked with no stop hook: Background once the turn ends while the registry still says busy', async ($, on) => {
+    on('turn.start', ($s, e) => ({ turnId: (e as { turnId: string }).turnId }) as never)
+    on('turn.complete', () => ({ text: '' }) as never)
+    on('prompt.submit', ($s, e) => ({ text: (e as { text: string }).text }) as never)
+    on('tool.call', { tool: 'Bash' }, ($s, e) => ({ result: { stdout: '', stderr: '', interrupted: false, ...((e as { command?: string }).command === 'sleep 240' ? { backgroundTaskId: 'bavp7cqri' } : {}) } }) as never)
+    on('tool.call', { tool: 'Monitor' }, () => ({ result: { taskId: 'mon1', timeoutMs: 1000 } }) as never)
+    const sessions = [S('mine', { status: 'busy', branch: 'feat' })]
+    const { ui, clock } = await mountPane($, on, sessions)
+    const refresh = async () => { await clock.advance(6000); await ui.advance(6000) }
+    await $.turn.start({ text: 'go', turnId: 't1' } as never)
+    await $.tool.call({ tool: 'Bash', command: 'sleep 240', description: 'Wait four minutes', run_in_background: true } as never)
+    await $.tool.call({ tool: 'Bash', command: 'ls' } as never)
+    await $.tool.call({ tool: 'Monitor', description: 'Watch the log', timeout_ms: 1000, agentId: 'a1' } as never)
+    await refresh()
+    expect(await rowText(ui, 'mine')).toMatch(/Working/)
+    expect((await ui.find({ key: 'task:bavp7cqri' }))?.text).toMatch(/Command.*sleep 240/)
+    expect(await ui.find({ key: 'task:mon1' })).toBeUndefined()
+    await $.turn.complete({ answer: 'started', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+    await refresh()
+    expect(await rowText(ui, 'mine')).toContain('Background')
+    await clock.advance(15 * MIN); await ui.advance(15 * MIN)
+    expect(await rowText(ui, 'mine')).toContain('Check?')
+    await $.prompt.submit({ text: '<task-notification>\n<task-id>bavp7cqri</task-id>\n<status>completed</status>\n</task-notification>', origin: { kind: 'task-notification' }, wait: false } as never)
+    await refresh()
+    expect(await ui.find({ key: 'task:bavp7cqri' })).toBeUndefined()
+    expect(await rowText(ui, 'mine')).not.toMatch(/Background|Check\?/)
+  })
+  // amend 2026-10-19: live follow-up -- a managed plugin sends the classic Stop, StopFailure and UserPromptSubmit
+  // hooks past every installed plugin, so Failed comes from the main loop's turn end and the person's prompt.
+  // amend 2026-10-19: review -- the tracker and a Stop snapshot together, TaskStop, /clear and an unseen end.
+  const trackerHooks = (on: On) => {
+    on('turn.start', ($s, e) => ({ turnId: (e as { turnId: string }).turnId }) as never)
+    on('turn.complete', () => ({ text: '' }) as never)
+    on('session.end', ($s, e) => ({ sessionId: (e as { sessionId: string }).sessionId }) as never)
+    on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'b1' } }) as never)
+    on('tool.call', { tool: 'TaskStop' }, () => ({ result: { message: 'stopped' } }) as never)
+  }
+  const launch = async ($: any) => {
+    await $.turn.start({ text: 'go', turnId: 't1' } as never)
+    await $.tool.call({ tool: 'Bash', command: 'npm test', run_in_background: true } as never)
+    await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+  }
+  test('review: a Stop snapshot of a task the tool call already added keeps one row', async ($, on) => {
+    trackerHooks(on)
+    const { ui, clock } = await mountPane($, on, [S('mine', { status: 'busy' })])
+    await launch($)
+    await $.classic.Stop({ stop_hook_active: false, background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'npm test', command: 'npm test' }] } as never)
+    await clock.advance(6000); await ui.advance(6000)
+    expect(await ui.findAll({ key: 'task:b1' })).toHaveLength(1)
+    expect(await rowText(ui, 'mine')).toContain('Background')
+  })
+  test('review: a second turn end with no turn start restarts the Check? silence clock', async ($, on) => {
+    trackerHooks(on)
+    const { ui, clock } = await mountPane($, on, [S('mine', { status: 'busy' })])
+    await launch($)
+    await clock.advance(20 * 60_000); await ui.advance(6000)
+    expect(await rowText(ui, 'mine')).toContain('Check?')
+    await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+    await clock.advance(6000); await ui.advance(6000)
+    expect(await rowText(ui, 'mine')).toContain('Background')
     expect(await rowText(ui, 'mine')).not.toContain('Check?')
+  })
+  test('review: TaskStop ends the task its input names', async ($, on) => {
+    trackerHooks(on)
+    const { ui, clock } = await mountPane($, on, [S('mine', { status: 'busy' })])
+    await launch($)
+    await clock.advance(6000); await ui.advance(6000)
+    expect(await ui.find({ key: 'task:b1' })).toBeDefined()
+    await $.tool.call({ tool: 'TaskStop', task_id: 'b1' } as never)
+    await clock.advance(6000); await ui.advance(6000)
+    expect(await ui.find({ key: 'task:b1' })).toBeUndefined()
+    expect(await rowText(ui, 'mine')).not.toMatch(/Background|Check\?/)
+  })
+  test('review: /clear drops the old conversation\'s tasks, Background and subagents', async ($, on) => {
+    trackerHooks(on)
+    const world: World = { agents: [AGENT('a1', 'completed', 'Scan')] }
+    const { ui, clock } = await mountPane($, on, [S('mine', { status: 'busy' })], world)
+    await launch($)
+    await clock.advance(6000); await ui.advance(6000)
+    expect(await rowText(ui, 'mine')).toContain('Background')
+    expect(await ui.find({ key: 'view:a1' })).toBeDefined()
+    world.agents = []
+    await $.session.end({ reason: 'clear', sessionId: idOf('mine'), resume: { id: idOf('mine') } } as never)
+    await clock.advance(6000); await ui.advance(6000)
+    expect(await ui.find({ key: 'task:b1' })).toBeUndefined()
+    expect(await ui.find({ key: 'view:a1' })).toBeUndefined()
+    expect(await rowText(ui, 'mine')).not.toMatch(/Background|Check\?/)
+  })
+  test('review: an idle session with no turn running drops a task whose end went unseen', async ($, on) => {
+    trackerHooks(on)
+    const sessions = [S('mine', { status: 'busy' })]
+    const { ui, clock } = await mountPane($, on, sessions)
+    await launch($)
+    await clock.advance(6000); await ui.advance(6000)
+    expect(await rowText(ui, 'mine')).toContain('Background')
+    sessions[0]!.status = 'idle'
+    sessions[0]!.sinceMs = -10_000
+    await clock.advance(6000); await ui.advance(6000)
+    expect(await ui.find({ key: 'task:b1' })).toBeUndefined()
+    expect(await rowText(ui, 'mine')).not.toMatch(/Background|Check\?/)
+  })
+  test('AC-G1 Failed with no classic hook: an API-error turn end marks it; an answered turn or the next prompt clears it', async ($, on) => {
+    on('turn.start', ($s, e) => ({ turnId: (e as { turnId: string }).turnId }) as never)
+    on('turn.complete', () => ({ text: '' }) as never)
+    on('prompt.submit', ($s, e) => ({ text: (e as { text: string }).text }) as never)
+    const { ui, clock } = await mountPane($, on, [S('mine', { branch: 'feat' })])
+    const refresh = async () => { await clock.advance(6000); await ui.advance(6000) }
+    const end = (turnId: string, reason: string, agentId?: string) => $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId, reason, ...(agentId ? { agentId } : {}) } as never)
+    await end('s1', 'error', 'a1')
+    await refresh()
+    expect(await rowText(ui, 'mine')).not.toContain('Failed')
+    await end('t1', 'error')
+    await refresh()
+    expect(await rowText(ui, 'mine')).toContain('✕ Failed')
+    await end('t2', 'answer')
+    await refresh()
+    expect(await rowText(ui, 'mine')).not.toContain('Failed')
+    await end('t3', 'error')
+    await refresh()
+    expect(await rowText(ui, 'mine')).toContain('✕ Failed')
+    await $.prompt.submit({ text: '<task-notification>\n<task-id>x</task-id>\n<status>completed</status>\n</task-notification>', origin: { kind: 'task-notification' }, wait: false } as never)
+    await refresh()
+    expect(await rowText(ui, 'mine')).toContain('✕ Failed')
+    await $.prompt.submit({ text: 'try again', origin: { kind: 'composer' }, wait: false } as never)
+    await refresh()
+    expect(await rowText(ui, 'mine')).not.toContain('Failed')
   })
   test('AC-G1 An API failure in the own session shows Failed until a later turn stops well', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine', { branch: 'feat' })])
@@ -896,7 +1121,7 @@ describe('6. project icons and empty states', () => {
     expect(caption).toBeDefined()
     const line = caption!.text as string
     const left = line.length - line.trimStart().length
-    const right = 44 - line.trimEnd().length
+    const right = 42 - line.trimEnd().length
     expect(Math.abs(left - right)).toBeLessThanOrEqual(1)
   })
   test('AC-47c Active empty and none working (other shelves still draw)', async ($, on) => {
@@ -1237,6 +1462,13 @@ describe('10. press to focus', () => {
     await press(ui, `open:${refOf('mine')}`)
     expect(world.ran).toEqual([])
   })
+  test('D6 Pressing own after a child immediately returns to the main conversation', async ($, on) => {
+    const world: World = { views: [], agents: [AGENT('a1', 'running', 'Scan')] }
+    const { ui } = await mountPane($, on, [S('mine')], world)
+    await press(ui, 'view:a1')
+    await press(ui, `open:${refOf('mine')}`)
+    expect(world.views).toEqual([{ agentId: 'a1' }, {}])
+  })
   test('AC-85b Press own card (clears Done and Woke)', async ($, on) => {
     const store = new Map<string, unknown>([[`pref:${idOf('mine')}`, { snoozedUntil: TUE_10 - MIN }]])
     const { ui } = await mountPane($, on, [S('mine', { status: 'completed' })], { store })
@@ -1303,6 +1535,14 @@ describe('11. subagents and context', () => {
     await clock.advance(6000); await ui.advance(6000)
     expect(await ui.find({ key: 'view:a1' })).toBeDefined()
   })
+  // amend 2026-10-19: live defect D3 -- ListAgents lists the own subagents in a `subagents` section; none becomes a card.
+  test('D3 A subagent listed by ListAgents is a child row, never a session card', async ($, on) => {
+    const agents = [AGENT('a715004d2b60f4252', 'completed', 'Count files')]
+    const { ui } = await mountPane($, on, [S('mine')], { agents, subagentRows: [{ id: 'a715004d2b60f4252', type: 'general-purpose', status: 'completed' }] })
+    expect(await ui.find({ key: 'line1:a715004d2b60f4252' })).toBeUndefined()
+    expect(await hasText(ui, /^a715004d2b60f4252$/)).toBe(false)
+    expect(await ui.find({ key: 'view:a715004d2b60f4252' })).toBeDefined()
+  })
   test('AC-91b Subagent removed (row gone within one refresh)', async ($, on) => {
     const world: World = { agents: [AGENT('a1', 'running', 'Scan')] }
     const { ui, clock } = await mountPane($, on, [S('mine')], world)
@@ -1310,14 +1550,33 @@ describe('11. subagents and context', () => {
     await clock.advance(6000); await ui.advance(6000)
     expect(await ui.find({ key: 'view:a1' })).toBeUndefined()
   })
-  test('AC-92 Mixed states (waiting, then running, then the rest; each newest first)', async ($, on) => {
+  // amend 2026-10-19: live defect D2 -- the engine forgets an ended subagent; its row stays Done for the session.
+  test('D2 Finished subagents stay listed after the agent list forgets them; the badge keeps counting them', async ($, on) => {
+    const world: World = { agents: [AGENT('a1', 'running', 'Count files'), AGENT('a2', 'running', 'Read README')] }
+    const { ui, clock } = await mountPane($, on, [S('mine')], world, 70)
+    world.agents = [AGENT('a1', 'completed', 'Count files'), AGENT('a2', 'running', 'Read README')]
+    await clock.advance(6000); await ui.advance(6000)
+    world.agents = [AGENT('a2', 'completed', 'Read README')]
+    await clock.advance(6000); await ui.advance(6000)
+    world.agents = []
+    await clock.advance(6000); await ui.advance(6000)
+    expect((await ui.find({ key: 'child:a1' }))?.text).toMatch(/✓ Done/)
+    expect((await ui.find({ key: 'child:a2' }))?.text).toMatch(/✓ Done/)
+    expect((await rowText(ui, 'mine')).split('\n')[2]).toMatch(/●● 2/)
+    world.agents = [AGENT('b1', 'running', 'Next run')]
+    await clock.advance(6000); await ui.advance(6000)
+    expect(await ui.find({ key: 'view:a1' })).toBeDefined()
+    expect(await ui.find({ key: 'view:b1' })).toBeDefined()
+  })
+  // amend 2026-10-19: AC-92 -- child rows use the card words, so engine waiting and running are both Working.
+  test('AC-92 Mixed states (failed, then working, then finished; each newest first)', async ($, on) => {
     const agents = [
       AGENT('d1', 'completed', 'd1', { startedAt: 1 }), AGENT('r1', 'running', 'r1', { startedAt: 1 }), AGENT('w1', 'waiting', 'w1', { startedAt: 1 }),
       AGENT('r2', 'running', 'r2', { startedAt: 2 }), AGENT('w2', 'waiting', 'w2', { startedAt: 2 }), AGENT('d2', 'completed', 'd2', { startedAt: 2 }),
     ]
     const { ui } = await mountPane($, on, [S('mine')], { agents })
     const keys = (await ui.findAll({})).map((one: any) => one.key as string).filter((k: string) => k?.startsWith('view:'))
-    expect(keys).toEqual(['view:w2', 'view:w1', 'view:r2', 'view:r1', 'view:d2'])
+    expect(keys).toEqual(['view:r2', 'view:w2', 'view:r1', 'view:w1', 'view:d2'])
   })
   // amend 2026-10-18: AC-93 -- a plain percentage, muted below 75, orange from 75, red at 100.
   test('AC-93 Own card context (plain percentage; muted under 75, orange 75 to 99, red 100)', async ($, on) => {
@@ -1509,7 +1768,7 @@ describe('13. performance and safety', () => {
     const ok: World = { gh: 'ok', ghCalls: [] }
     const signed = await mountPane($, on, [S('mine', { branch: 'feat' })], ok, 90)
     await signed.clock.advance(61_000); await signed.ui.advance(61_000)
-    expect(await rowText(signed.ui, 'mine')).toMatch(/#42/)
+    expect(await rowText(signed.ui, 'mine')).toMatch(/PR #42/)
   })
 })
 
@@ -1581,7 +1840,7 @@ describe('edge cases and dock checks', () => {
     // amend 2026-10-18: AC-41 -- the title is cut with an ellipsis and each line, icon included, is exactly 109 cells.
     const lines = (await rowText(ui, 'mine')).split('\n')
     expect(lines[1]).toContain('…')
-    for (const line of lines) expect([...line].length).toBe(109)
+    for (const line of lines) expect([...line].length).toBe(107)
   })
   test('T-DOCK-3 Dock requests 44 columns', () => {
     expect(PANE_COLUMNS).toBe(44)
@@ -1589,7 +1848,7 @@ describe('edge cases and dock checks', () => {
   // amend 2026-10-18: T-DOCK-4 -- project icons, not creatures, are hidden below 30 columns.
   test('T-DOCK-4 Dock narrower than 30 usable columns (icons hidden below 30; setting unchanged)', async ($, on) => {
     const narrow = await mountPane($, on, [S('mine'), S('n', { status: 'waiting' })], {}, 29)
-    const wide = await mountPane($, on, [S('mine'), S('n', { status: 'waiting' })], {}, 30)
+    const wide = await mountPane($, on, [S('mine'), S('n', { status: 'waiting' })], {}, 32)
     expect(await iconKindOf(wide.ui, 'n')).toBe('monogram')
     expect(await iconKindOf(narrow.ui, 'n')).toBe('none')
     expect(narrow.store.get('setting:icons') ?? true).toBe(true)

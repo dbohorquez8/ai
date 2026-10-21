@@ -3,17 +3,17 @@
 
 import { ALL_CLEAR, WORKING_CAPTIONS } from './captions'
 import { inkOf, monogramTextOf, projectMonogramLetter } from './icons'
-import { backgroundRowOf, childRowOf, headerOf, ICON_CELLS, ICON_MIN_COLUMNS, line1Of, line2Of, line3Of, MAX_CHILD_ROWS, oneLineOf, sortChildren } from './layout'
+import { backgroundRowOf, childRowOf, headerOf, ICON_CELLS, ICON_MIN_COLUMNS, line1Of, line2Of, line3Of, MAX_CHILD_ROWS, oneLineOf, ROW_HORIZONTAL_PADDING, sortChildren } from './layout'
 import type { CardInput } from './layout'
 import { isWoke, offeredActions, shelfOf } from './lifecycle'
 import { MAX_BACKGROUND_ROWS } from './background'
-import { DEFAULT_SOFT_LIMIT } from './persist'
+import { DEFAULT_CHECK_AFTER_MINUTES, defaultSoftLimitOf } from './persist'
 import { orderShelf } from './order'
 import { snoozeOptionsAt } from './snooze'
 import { ownOf, statusOf } from './status'
 import { cellWidth, fitCells } from './width'
 import { SHELF_LABEL, SHELF_ORDER, snapToRasterGrid } from './types'
-import type { Caps, CardIcon, CardView, Child, Entry, PaneView, Palette, Session, ShelfId, ShelfView, Status, Stored } from './types'
+import type { Caps, CardIcon, CardView, Child, Entry, GlyphMode, PaneView, Palette, Session, ShelfId, ShelfView, Status, Stored } from './types'
 
 const centered = (caption: string, width: number): string => {
   const shown = fitCells(caption, width)
@@ -36,6 +36,7 @@ export const paneViewOf = (input: {
   width: number
   caps: Caps
   bell: 0 | 1 | 2
+  glyphMode?: GlyphMode
   snoozeOpen?: string
   /** The Active header's sort menu is open. */
   sortOpen?: boolean
@@ -46,16 +47,17 @@ export const paneViewOf = (input: {
   projectIcons?: ReadonlyMap<string, string>
 }): PaneView => {
   const { stored, now, width, palette } = input
+  const contentWidth = Math.max(0, width - ROW_HORIZONTAL_PADDING * 2)
   const finishedOf = (s: Session) => input.finished[s.prefId] ?? input.finished[s.id]
 
   type Placed = { s: Session; status: Status; entry: Entry | undefined; shelf: ShelfId }
   const placed: Placed[] = input.sessions.map(s => {
     const entry = stored.entries[s.prefId]
-    const status = statusOf(s.raw, s.statusSince, finishedOf(s), entry?.ackAt, s.askedAt, ownOf(s))
+    const status = statusOf(s.raw, s.statusSince, finishedOf(s), entry?.ackAt, s.askedAt, ownOf(s), now, stored.settings.checkAfter ?? DEFAULT_CHECK_AFTER_MINUTES)
     return { s, status, entry, shelf: shelfOf(s, status, entry, finishedOf(s), now, stored.settings.workingShelf) }
   })
 
-  const isWide = width >= ICON_MIN_COLUMNS
+  const isWide = contentWidth >= ICON_MIN_COLUMNS
   const showIcons = stored.settings.icons && isWide
   const canPicture = input.caps.pictures && input.caps.trueColor
 
@@ -74,17 +76,17 @@ export const paneViewOf = (input: {
     const form = shelf === 'working' ? 'line' : 'full'
     const projectColor = input.projectColors.get(s.project) ?? palette.text.gray
     const icon = iconOf(s.project, projectColor)
-    const firstWidth = Math.max(0, width - (icon.kind === 'none' ? 0 : ICON_CELLS))
+    const firstWidth = Math.max(0, contentWidth - (icon.kind === 'none' ? 0 : ICON_CELLS))
     const woke = isWoke(entry, status, now)
     const card: CardInput = {
-      s, status, woke, children: s.isSelf ? input.children : [], now, bell: input.bell, palette, projectColor,
+      s, status, woke, children: s.isSelf ? input.children : [], now, bell: input.bell, palette, projectColor, glyphMode: input.glyphMode ?? 'plain',
       ...(stored.settings.tickets ? { tickets: stored.settings.tickets } : {}),
-      softLimit: stored.settings.softLimit ?? DEFAULT_SOFT_LIMIT,
+      softLimit: stored.settings.softLimit ?? defaultSoftLimitOf(s.contextWindow),
       ...(shelf === 'snoozed' && entry?.snoozedUntil !== undefined ? { snoozedUntil: entry.snoozedUntil } : {}),
     }
     const view: CardView = {
       id: s.id, prefId: s.prefId, shelf, form, status, icon,
-      lines: form === 'line' ? [oneLineOf(card, firstWidth)] : [line1Of(card, firstWidth), line2Of(card, width), line3Of(card, width)],
+      lines: form === 'line' ? [oneLineOf(card, firstWidth)] : [line1Of(card, firstWidth), line2Of(card, contentWidth), line3Of(card, contentWidth)],
       isSelected: s.isSelf,
       isDim: Boolean(s.away),
       actions: offeredActions(status, shelf),
@@ -94,14 +96,14 @@ export const paneViewOf = (input: {
     if (s.isSelf && input.children.length > 0) {
       const ordered = sortChildren(input.children)
       const rows = ordered.slice(0, MAX_CHILD_ROWS).map(child => {
-        const row = childRowOf(child, width, now, palette)
+        const row = childRowOf(child, contentWidth, now, palette, input.glyphMode ?? 'plain', input.bell)
         return { id: child.id, text: row.text, ...(row.bg ? { bg: row.bg } : {}) }
       })
       view.children = ordered.length > MAX_CHILD_ROWS ? { rows, more: `+${ordered.length - MAX_CHILD_ROWS} more` } : { rows }
     }
     const tasks = s.isSelf ? (s.background ?? []) : []
     if (tasks.length > 0) {
-      const rows = tasks.slice(0, MAX_BACKGROUND_ROWS).map(task => ({ id: task.id, text: backgroundRowOf(task, width, now, palette) }))
+      const rows = tasks.slice(0, MAX_BACKGROUND_ROWS).map(task => ({ id: task.id, text: backgroundRowOf(task, contentWidth, now, palette) }))
       view.background = tasks.length > MAX_BACKGROUND_ROWS ? { rows, more: `+${tasks.length - MAX_BACKGROUND_ROWS} more` } : { rows }
     }
     return view
@@ -119,7 +121,7 @@ export const paneViewOf = (input: {
     const hasSort = id === 'active' && hasHeader && !isCollapsed
     shelves.push({
       id,
-      header: headerOf(SHELF_LABEL[id], inShelf.length, isCollapsed, width, hasSort ? ' ↕' : ''),
+      header: headerOf(SHELF_LABEL[id], inShelf.length, isCollapsed, contentWidth, hasSort ? ' ↕' : ''),
       hasHeader,
       isCollapsed,
       cards: isCollapsed ? [] : order.map(prefId => cardOf(byPref.get(prefId)!)),
@@ -132,6 +134,7 @@ export const paneViewOf = (input: {
     needYou: placed.filter(one => one.status === 'needs-you').length,
     shelves,
     width,
+    contentWidth,
     sort: stored.sort,
     settings: stored.settings,
     selectedFill: snapToRasterGrid(palette.fill),
@@ -142,9 +145,9 @@ export const paneViewOf = (input: {
     const index = (input.caption ?? stored.caption ?? 0) % WORKING_CAPTIONS.length
     view.scene = {
       kind: isWorking ? 'working' : 'hills',
-      caption: centered(isWorking ? WORKING_CAPTIONS[index]! : ALL_CLEAR, width),
+      caption: centered(isWorking ? WORKING_CAPTIONS[index]! : ALL_CLEAR, contentWidth),
       showArt: isWide && input.caps.trueColor,
-      width,
+      width: contentWidth,
     }
   }
   return view

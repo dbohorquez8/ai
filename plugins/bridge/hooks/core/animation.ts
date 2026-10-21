@@ -10,13 +10,14 @@ export const TICK_MS = 200
 export const SCENE_FRAME_MS = 600
 export const BELL_PERIOD_MS = 4000
 
-/** Bell wobble: 1 in [0,150) and [300,450) ms, 2 in [150,300) ms of each 4000 ms window, else 0. */
+/**
+ * Bell shake: rest, right, rest, right, one TICK_MS each, once per four seconds; 0 is the centred rest.
+ * Each step lasts exactly one tick, so a ticker at any offset draws every step once, in order.
+ */
 export const bellOf = (now: number): 0 | 1 | 2 => {
   const at = ((now % BELL_PERIOD_MS) + BELL_PERIOD_MS) % BELL_PERIOD_MS
-  if (at < 150) return 1
-  if (at < 300) return 2
-  if (at < 450) return 1
-  return 0
+  const step = Math.floor(at / TICK_MS)
+  return step === 1 || step === 3 ? 2 : 0
 }
 
 export const spinnerFrameAt = (tick: number): number => tick % 10
@@ -24,7 +25,7 @@ export const sceneFrameAt = (tick: number): number => Math.floor((tick * TICK_MS
 
 const visibleCards = (view: PaneView): CardView[] => view.shelves.filter(shelf => !shelf.isCollapsed).flatMap(shelf => shelf.cards)
 
-const hasSpinner = (card: CardView): boolean => card.lines.some(line => line.some(seg => seg.kind === 'spinner'))
+const hasSpinner = (card: CardView): boolean => card.lines.some(line => line.some(seg => seg.kind === 'spinner')) || card.children?.rows.some(row => row.text.some(seg => seg.kind === 'spinner')) === true
 
 export const isAnimating = (view: PaneView, isShown: boolean): boolean => {
   if (!isShown) return false
@@ -40,7 +41,9 @@ export const framesAt = (view: PaneView, tick: number, mode: ThemeMode): Blit[] 
   for (const card of visibleCards(view)) {
     if (hasSpinner(card)) {
       const bg = card.isSelected ? hexToColor(view.selectedFill) : 0x01000000
-      blits.push({ key: `spin:${card.id}`, columns: 1, rows: 1, cells: spinnerCells(spinnerFrameAt(tick), palette.text.yellow, bg) })
+      if (card.lines.some(line => line.some(seg => seg.kind === 'spinner'))) blits.push({ key: `spin:${card.id}`, columns: 1, rows: 1, cells: spinnerCells(spinnerFrameAt(tick), palette.text.yellow, bg) })
+      // Child rows sit below the selected fill, so their spinner uses the row's own background.
+      for (const row of card.children?.rows ?? []) if (row.text.some(seg => seg.kind === 'spinner')) blits.push({ key: `spin:${row.id}`, columns: 1, rows: 1, cells: spinnerCells(spinnerFrameAt(tick), palette.text.yellow, row.bg ? hexToColor(row.bg) : 0x01000000) })
     }
   }
   if (view.scene?.showArt) {

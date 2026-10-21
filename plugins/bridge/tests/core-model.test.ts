@@ -2,23 +2,25 @@ import { describe, expect, test, tier } from 'claude-code/testing'
 
 import { ageLabel, timeLeftLabel } from '../hooks/core/age'
 import { cellWidth, fitCells, padCells } from '../hooks/core/width'
-import { finishedAtOf, isWaitingRaw, isWorkingRaw, mergedStatusOf, statusOf } from '../hooks/core/status'
-import { AGENTS_ARGV, agentsJsonOf, modelOf, percentOf, sessionsOf, TRANSCRIPT_TAIL_BYTES } from '../hooks/core/sources'
+import { finishedAtOf, isWaitingRaw, isWorkingRaw, mergedStatusOf, statusOf, steadySinceOf } from '../hooks/core/status'
+import { AGENTS_ARGV, agentsJsonOf, modelIdOf, modelOf, percentOf, sessionsOf, TRANSCRIPT_TAIL_BYTES } from '../hooks/core/sources'
 import { applyAction, isWoke, offeredActions, reconcile, returnedOf, shelfOf, wakeOf, INACTIVE_AFTER_MS, SEEN_STAMP_MS } from '../hooks/core/lifecycle'
 import { SNOOZE_LABELS, snoozeOptionsAt } from '../hooks/core/snooze'
 import { moved, orderShelf } from '../hooks/core/order'
-import { DEFAULT_SOFT_LIMIT, KEYS, loadStored, PREF_PREFIX, PRUNE_AFTER_MS, prunedKeys, SIDEBAR_ARGS_HINT, sidebarSettingOf, softLimitOf, windowsOf } from '../hooks/core/persist' // amend 2026-10-18: AC-08a, AC-45 -- (settings are /bridge arguments)
+import { DEFAULT_CHECK_AFTER_MINUTES, DEFAULT_SOFT_LIMIT, defaultSoftLimitOf, LARGE_WINDOW_SOFT_LIMIT, KEYS, loadStored, PREF_PREFIX, PRUNE_AFTER_MS, prunedKeys, SIDEBAR_ARGS_HINT, sidebarSettingOf, softLimitOf, windowsOf } from '../hooks/core/persist' // amend 2026-10-18: AC-08a, AC-45 -- (settings are /bridge arguments)
 import { ALL_CLEAR, nextCaption, WORKING_CAPTIONS } from '../hooks/core/captions'
-import { backgroundRowOf, childRowOf, fitSegs, headerOf, line1Of, line2Of, line3Of, oneLineOf, sortChildren } from '../hooks/core/layout'
+import { backgroundRowOf, CARD_EDGE_BOTTOM, CARD_EDGE_TOP, CARD_GAP_ROWS, childRowOf, fitSegs, headerOf, line1Of, line2Of, line3Of, oneLineOf, ROW_HORIZONTAL_PADDING, sortChildren } from '../hooks/core/layout'
+import { glyphModeOf } from '../hooks/adapters/glyphs'
 import { parseTicketId } from '../hooks/core/tickets'
-import { backgroundOf, MAX_BACKGROUND_ROWS, taskLabelOf } from '../hooks/core/background'
+import { backgroundOf, endedTaskIdOf, launchedTaskOf, MAX_BACKGROUND_ROWS, reconciledBackgroundOf, taskLabelOf, withoutTask, withTask } from '../hooks/core/background'
+import { childrenOf, MAX_KEPT_FINISHED } from '../hooks/core/children'
 import { base64Of, chimeClaimOf, chimeSamples, chimeWav, CHIME_RATE, isPutAway, prunedChimeKeys, shouldChimeOf, wavOf } from '../hooks/core/chime'
 import type { CardInput } from '../hooks/core/layout'
 import { paneViewOf } from '../hooks/core/view'
 import { DEFAULT_COLLAPSED, hexToColor, snapToRasterGrid } from '../hooks/core/types'
 import { contrastRatio } from '../hooks/core/palette'
-import { iconCacheNameOf, iconConvertArgv, PROJECT_ICON_CANDIDATES, projectMonogramLetter, projectRootOf } from '../hooks/core/icons'
-import type { Caps, Child, ChildTag, Entry, Layout, Palette, Seg, Session, ShelfId, SortMode, Status, Stored } from '../hooks/core/types'
+import { ICON_MAX_BYTES, ICON_MAX_SIDE, iconCacheNameOf, iconConvertArgv, isIconSizeUsable, PROJECT_ICON_CANDIDATES, projectMonogramLetter, projectRootOf } from '../hooks/core/icons'
+import type { Caps, Child, ChildStatus, Entry, Layout, Palette, Seg, Session, ShelfId, SortMode, Status, Stored } from '../hooks/core/types'
 import { REFRESH_MS, REGISTRY_SCRIPT, REGISTRY_SEPARATOR, joined, registryOf, rowsOf, withSelf } from '../hooks/sidebar-policy'
 import type { RegistryEntry } from '../hooks/sidebar-policy'
 import { FIELD, ITEM, itemsOf, staleTitlesOf, TITLE_SCRIPT } from '../hooks/card-policy'
@@ -47,9 +49,9 @@ const S = (over: Partial<Session> & { id: string }): Session => ({
   prefId: over.id, name: over.id, activityAt: NOW - MIN, raw: 'idle', statusSince: NOW - 2 * HOUR, title: `${over.id} title`, project: 'proj', isSelf: false, ...over,
 })
 const card = (over: Partial<Session> = {}, extra: Partial<CardInput> = {}): CardInput => ({
-  s: S({ id: 'a', ...over }), status: 'idle', woke: false, children: [], now: NOW, bell: 0, palette: PALETTE, projectColor: '#88aacc', ...extra,
+  s: S({ id: 'a', ...over }), status: 'idle', woke: false, children: [], now: NOW, bell: 0, palette: PALETTE, projectColor: '#88aacc', glyphMode: 'plain', ...extra,
 })
-const CHILD = (id: string, tag: ChildTag, startedAt = 0, since = NOW - 2 * MIN): Child => ({ id, label: `task ${id}`, tag, since, startedAt })
+const CHILD = (id: string, status: ChildStatus, startedAt = 0, since = NOW - 2 * MIN): Child => ({ id, label: `task ${id}`, status, since, startedAt })
 
 const plain = (segs: readonly Seg[]) => segs.map(seg => (seg.kind === 'spinner' ? '⠋' : seg.text)).join('')
 const cells = (segs: readonly Seg[]) => segs.reduce((total, seg) => total + (seg.kind === 'spinner' ? 1 : cellWidth(seg.text)), 0)
@@ -177,6 +179,97 @@ const AGENTS_JSON = JSON.stringify([
   null,
 ])
 
+describe('background tasks from tool calls and notifications (live defect D1)', () => {
+  test('a background Bash, a Monitor and a Workflow start a task; a foreground or self-ending command does not', () => {
+    expect(launchedTaskOf('Bash', { command: 'sleep 240', description: 'Wait' }, { backgroundTaskId: 'b1' })).toEqual({ id: 'b1', type: 'shell', command: 'sleep 240', description: 'Wait' })
+    expect(launchedTaskOf('Bash', { command: 'ls' }, { stdout: 'x' })).toBeUndefined()
+    expect(launchedTaskOf('Bash', { command: 'x' }, { backgroundTaskId: 'b2', backgroundEndsWithFinalResponse: true })).toBeUndefined()
+    expect(launchedTaskOf('Monitor', { description: 'Watch CI' }, { taskId: 'm1', timeoutMs: 1 })).toEqual({ id: 'm1', type: 'monitor', description: 'Watch CI' })
+    expect(launchedTaskOf('Workflow', { name: 'review' }, { status: 'async_launched', taskId: 'w1', workflowName: 'deep-review' })).toEqual({ id: 'w1', type: 'workflow', name: 'deep-review' })
+    expect(launchedTaskOf('Workflow', {}, { status: 'async_launched', taskId: 'w2', error: 'syntax' })).toBeUndefined()
+    expect(launchedTaskOf('Read', {}, { taskId: 'r' })).toBeUndefined()
+    expect(launchedTaskOf('Bash', undefined, undefined)).toBeUndefined()
+  })
+  test('a task notification with an ending status names its task; any other text names none', () => {
+    const note = (status: string) => `<task-notification>\n<task-id>bavp7cqri</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>${status}</status>\n<summary>Background command done</summary>\n</task-notification>`
+    for (const status of ['completed', 'failed', 'killed', 'Stopped']) expect(endedTaskIdOf(note(status))).toBe('bavp7cqri')
+    expect(endedTaskIdOf(note('running'))).toBeUndefined()
+    expect(endedTaskIdOf('<task-id>x</task-id><status>completed</status>')).toBeUndefined()
+    expect(endedTaskIdOf('hello')).toBeUndefined()
+  })
+  test('review P1: idle with no turn running drops the tasks first seen before the idle began; busy, shell or a running turn keep them', () => {
+    const list = [{ id: 'old', kind: 'Command' as const, label: 'sleep', firstSeenAt: 100 }, { id: 'new', kind: 'Command' as const, label: 'npm', firstSeenAt: 600 }]
+    expect(reconciledBackgroundOf(list, { raw: 'idle', isTurnOver: true, idleSince: 500 }).map(one => one.id)).toEqual(['new'])
+    for (const raw of ['busy', 'shell', 'waiting']) expect(reconciledBackgroundOf(list, { raw, isTurnOver: true, idleSince: 500 })).toEqual(list)
+    expect(reconciledBackgroundOf(list, { raw: 'idle', isTurnOver: false, idleSince: 500 })).toEqual(list)
+    expect(reconciledBackgroundOf(list, { raw: 'idle', idleSince: 500 })).toEqual(list)
+    expect(reconciledBackgroundOf(list, { raw: 'idle', isTurnOver: true })).toEqual(list)
+    expect(reconciledBackgroundOf(null, { raw: 'idle', isTurnOver: true, idleSince: 500 })).toBeNull()
+  })
+  test('a started task is added once, first seen now; an ended one is taken off; no source stays no source', () => {
+    const one = withTask(null, { id: 'b1', type: 'shell', command: 'npm test' }, 100)
+    expect(one).toEqual([{ id: 'b1', kind: 'Command', label: 'npm test', firstSeenAt: 100 }])
+    expect(withTask(one, { id: 'b1', type: 'shell', command: 'npm test' }, 200)).toEqual(one)
+    expect(withoutTask(one, 'b1')).toEqual([])
+    expect(withoutTask(null, 'b1')).toBeNull()
+  })
+  test('the own card reads Background when its turn is over and work is in flight, even while its word says busy', () => {
+    expect(statusOf('busy', 0, undefined, undefined, undefined, { background: 1, isTurnOver: true })).toBe('background')
+    expect(statusOf('busy', 0, undefined, undefined, undefined, { background: 1, isTurnOver: false })).toBe('working')
+    expect(statusOf('busy', 0, undefined, undefined, undefined, { background: 1 })).toBe('working')
+    expect(statusOf('busy', 0, undefined, undefined, undefined, { background: 0, isTurnOver: true })).toBe('working')
+    expect(statusOf('waiting', 0, undefined, undefined, undefined, { background: 1, isTurnOver: true })).toBe('needs-you')
+  })
+  test('a live child permission or question rolls up as Needs you; background waiting does not', () => {
+    expect(statusOf('busy', 0, undefined, undefined, undefined, { childNeedAt: NOW })).toBe('needs-you')
+    expect(statusOf('busy', 0, undefined, undefined, undefined, {})).toBe('working')
+    expect(chimeClaimOf('needs-you', { sharedSince: 1, childNeedAt: NOW })).toBe(`needs-you@${NOW}`)
+  })
+})
+
+describe('child rows kept (live defect D2)', () => {
+  const agent = (id: string, status: string) => ({ id, status, description: id, type: 'general-purpose' })
+  test('a finished child the list forgot stays as last seen; a running one that vanished is gone', () => {
+    const first = childrenOf([agent('a1', 'completed'), agent('a2', 'running')], [], {}, 100)
+    const second = childrenOf([], first.list, first.seen, 200)
+    expect(second.list.map(child => [child.id, child.status, child.since])).toEqual([['a1', 'done', 100]])
+    expect(second.seen.a1).toEqual(first.seen.a1)
+    const third = childrenOf([agent('b1', 'failed')], second.list, second.seen, 300)
+    expect(third.list.map(child => [child.id, child.status])).toEqual([['b1', 'failed'], ['a1', 'done']])
+  })
+  test('kept finished children are capped, the newest kept', () => {
+    const many = Array.from({ length: MAX_KEPT_FINISHED + 3 }, (_, at) => ({ id: `d${at}`, label: `d${at}`, status: 'done' as const, since: at, startedAt: at }))
+    const out = childrenOf([agent('r1', 'running')], many, {}, 1000)
+    expect(out.list).toHaveLength(MAX_KEPT_FINISHED + 1)
+    expect(out.list.map(child => child.id)).not.toContain('d0')
+    expect(out.list.map(child => child.id)).toContain(`d${MAX_KEPT_FINISHED + 2}`)
+  })
+  test('only a real pending interaction changes a waiting child to Needs you', () => {
+    const waiting = agent('wait', 'waiting')
+    expect(childrenOf([waiting], [], {}, 100).list[0]?.status).toBe('working')
+    const asked = childrenOf([waiting], [], {}, 100, { wait: 99 })
+    expect(asked.list[0]?.status).toBe('needs-you')
+    expect(sortChildren(asked.list)[0]?.id).toBe('wait')
+    expect(plain(childRowOf(asked.list[0]!, 60, NOW, PALETTE).text)).toMatch(/Needs you/)
+  })
+})
+
+describe('steady status time (live defect D4)', () => {
+  test('the same word keeps the earlier start; a new word or no earlier one takes the source time', () => {
+    expect(steadySinceOf({ status: 'busy', at: 100 }, 'busy', 900)).toBe(100)
+    expect(steadySinceOf({ status: 'Busy', at: 100 }, 'busy ', 900)).toBe(100)
+    expect(steadySinceOf({ status: 'busy', at: 100 }, 'idle', 900)).toBe(900)
+    expect(steadySinceOf(undefined, 'busy', 900)).toBe(900)
+    expect(steadySinceOf({ status: 'busy', at: 0 }, 'busy', 900)).toBe(900)
+    expect(steadySinceOf({ status: 'busy', at: 950 }, 'busy', 900)).toBe(900)
+    expect(steadySinceOf({ status: 'busy', at: 100 }, 'busy', 0)).toBe(100)
+    // review P3: the own session's turn started or ended after the kept start (busy, idle, busy between refreshes).
+    expect(steadySinceOf({ status: 'busy', at: 100 }, 'busy', 900, 500)).toBe(500)
+    expect(steadySinceOf({ status: 'busy', at: 100 }, 'busy', 900, 50)).toBe(100)
+    expect(steadySinceOf({ status: 'busy', at: 100 }, 'idle', 900, 500)).toBe(900)
+  })
+})
+
 describe('sources', () => {
   test('agentsJsonOf reads the captured 2026-10-18 shape, drops background sessions and entries with no id', () => {
     expect(AGENTS_ARGV).toEqual(['claude', 'agents', '--json'])
@@ -192,6 +285,10 @@ describe('sources', () => {
 
   test('modelOf reads the short family, else the last id segment, and never invents one', () => {
     expect(modelOf('"model":"claude-opus-5-5"')).toBe('opus')
+    // review P3: some transcripts mark a 1M window with `[1m]`; the id keeps it, so its window is kept apart.
+    expect(modelOf('"model":"claude-opus-4-8[1m]"')).toBe('opus')
+    expect(modelIdOf('"model":"claude-opus-4-8[1M]"')).toBe('claude-opus-4-8[1m]')
+    expect(modelIdOf('"model":"claude[x]"')).toBeUndefined()
     expect(modelOf('"model":"claude-sonnet-4-5-20250929"')).toBe('sonnet')
     expect(modelOf('"model":"claude-haiku-4-5"')).toBe('haiku')
     expect(modelOf('"model":"claude-fable-1"')).toBe('fable')
@@ -267,6 +364,13 @@ describe('sessionsOf', () => {
     ])
   })
 
+  test('the status time stays at its last start while the word is unchanged (live defect D4)', () => {
+    const steady = sessionsOf({ ...base(), since: { 'sid-self': { status: 'busy', at: 1500 }, 'sid-wait': { status: 'idle', at: 10 } } })
+    expect(steady.find(s => s.prefId === 'sid-self')?.statusSince).toBe(1500)
+    expect(steady.find(s => s.prefId === 'sid-wait')?.statusSince).toBe(5500)
+    expect(sessionsOf(base()).find(s => s.prefId === 'sid-self')?.statusSince).toBe(4000)
+  })
+
   test('a listed session that neither the rows nor the registry know is added; background never arrives', () => {
     const listed = agentsJsonOf(AGENTS_JSON)
     const out = sessionsOf({ ...base(), listed })
@@ -277,7 +381,7 @@ describe('sessionsOf', () => {
 
   test('values come from their sources and nothing is invented: a bare session has no model, PR, branch, percent or reason', () => {
     const bare = sessionsOf(base()).find(s => s.id === 'sid-bare')!
-    expect(bare).toEqual({ id: 'sid-bare', prefId: 'sid-bare', sessionId: 'sid-bare', name: 'bare', activityAt: 0, raw: '', statusSince: 0, title: 'bare', project: '', isSelf: false })
+    expect(bare).toEqual({ id: 'sid-bare', prefId: 'sid-bare', sessionId: 'sid-bare', name: 'bare', activityAt: 0, raw: '', sharedRaw: '', statusSince: 0, title: 'bare', project: '', isSelf: false })
     for (const key of ['model', 'pr', 'branch', 'contextPercent', 'reason', 'away', 'cwd', 'pid', 'startedAt'] as const) expect(key in bare).toBe(false)
   })
 
@@ -293,7 +397,7 @@ describe('sessionsOf', () => {
     const waiter = out.find(s => s.id === 'ref-w')!
     expect(waiter).toEqual({
       // amend 2026-10-19: review P2-a -- sharedSince, the registry's status time, claims a chime alike in every pane.
-      id: 'ref-w', prefId: 'sid-wait', sessionId: 'sid-wait', name: 'waiter', cwd: '/r/AI-Docs', pid: 12, startedAt: 2000, activityAt: 6000, raw: 'waiting', statusSince: 5500, sharedSince: 5500,
+      id: 'ref-w', prefId: 'sid-wait', sessionId: 'sid-wait', name: 'waiter', cwd: '/r/AI-Docs', pid: 12, startedAt: 2000, activityAt: 6000, raw: 'waiting', sharedRaw: 'waiting', statusSince: 5500, sharedSince: 5500,
       reason: 'permission prompt', title: 'Review the PR', project: 'AI-Docs', branch: 'main', model: 'opus', pr: 42, contextPercent: 55, isSelf: false, away: 'tmux',
     })
   })
@@ -307,6 +411,22 @@ describe('sessionsOf', () => {
     const selfSid = self.sessionId ?? self.id
     const own = sessionsOf({ ...base(), selfContext: 20, contexts: { [selfSid]: { tokens: 1, model: 'm' } }, windows: { m: 1_000_000 } }).find(s => s.isSelf)!
     expect(own.contextTokens).toBe(200_000)
+  })
+  // amend 2026-10-19: the default soft limit follows the context window (100k up to 200k, 300k above).
+  test('context window: the own session takes it from session usage, another from its model; unknown, none', () => {
+    const self = sessionsOf(base()).find(s => s.isSelf)!
+    const selfSid = self.sessionId ?? self.id
+    const contexts = { [selfSid]: { tokens: 1, model: 'm' }, 'sid-wait': { tokens: 1, model: 'big' } }
+    const out = sessionsOf({ ...base(), contexts, windows: { m: 200_000, big: 1_000_000 }, selfWindow: 1_000_000 })
+    expect(out.find(s => s.isSelf)!.contextWindow).toBe(1_000_000)
+    // review P3: a plain id names a 200k and a 1M window alike; another session's large window needs the `[1m]` marker.
+    expect('contextWindow' in out.find(s => s.id === 'ref-w')!).toBe(false)
+    const marked = sessionsOf({ ...base(), contexts: { 'sid-wait': { tokens: 1, model: 'big[1m]' } }, windows: { 'big[1m]': 1_000_000 } })
+    expect(marked.find(s => s.id === 'ref-w')!.contextWindow).toBe(1_000_000)
+    const small = sessionsOf({ ...base(), contexts: { 'sid-wait': { tokens: 1, model: 'big' } }, windows: { big: 200_000 } })
+    expect(small.find(s => s.id === 'ref-w')!.contextWindow).toBe(200_000)
+    expect(sessionsOf({ ...base(), contexts, windows: { m: 200_000 } }).find(s => s.isSelf)!.contextWindow).toBe(200_000)
+    expect('contextWindow' in sessionsOf(base()).find(s => s.id === 'ref-w')!).toBe(false)
   })
   test('context: the own session uses the live value, another session only a registry value (AC-94)', () => {
     const out = sessionsOf({ ...base(), selfContext: 71 })
@@ -341,7 +461,15 @@ describe('sessionsOf', () => {
 
   test('edge "session list unreadable": only a name, nothing else, still gives a card', () => {
     const out = sessionsOf({ ...base(), rows: [{ id: 'x1', name: 'only-a-name', kind: 'sessions', type: 'session', status: '' }], registry: [] })
-    expect(out).toEqual([{ id: 'x1', prefId: 'x1', name: 'only-a-name', activityAt: 0, raw: '', statusSince: 0, title: 'only-a-name', project: '', isSelf: false }])
+    expect(out).toEqual([{ id: 'x1', prefId: 'x1', name: 'only-a-name', activityAt: 0, raw: '', sharedRaw: '', statusSince: 0, title: 'only-a-name', project: '', isSelf: false }])
+  })
+  // amend 2026-10-19: review re-check P2 -- the background drop reads the registry's own word, which the merge can hide.
+  test('sharedRaw keeps the registry word when a newer listed word wins the merge', () => {
+    const b = base()
+    const entry = b.registry.find(one => one.sessionId === 'sid-wait')!
+    const out = sessionsOf({ ...b, registry: b.registry.map(one => (one === entry ? { ...one, status: 'shell' } : one)), listedSeen: { 'sid-wait': { raw: 'idle', observedAt: 9_999_999 } } })
+    const waiter = out.find(s => s.prefId === 'sid-wait')!
+    expect(waiter.sharedRaw).toBe('shell')
   })
 })
 
@@ -594,7 +722,7 @@ describe('persistence (AC-115 to AC-119)', () => {
     const { stored, resetKeys } = loadStored(new Map())
     expect(resetKeys).toEqual([])
     expect(stored).toEqual({ entries: {}, layout: { v: 1, active: [], pinned: [] }, sort: 'recent', collapsed: { ...DEFAULT_COLLAPSED }, settings: { icons: true, theme: 'auto', workingShelf: false } }) // amend 2026-10-18: AC-08a
-    expect(KEYS).toEqual({ shelves: 'shelves', sort: 'sort', layout: 'layout', icons: 'setting:icons', theme: 'setting:theme', workingShelf: 'setting:workingShelf', caption: 'scene:caption', tickets: 'setting:tickets', softLimit: 'setting:softLimit', sound: 'setting:sound' }) // amend 2026-10-18: AC-08a, AC-08c; 2026-10-19: AC-G7
+    expect(KEYS).toEqual({ shelves: 'shelves', sort: 'sort', layout: 'layout', icons: 'setting:icons', theme: 'setting:theme', workingShelf: 'setting:workingShelf', glyphs: 'setting:glyphs', caption: 'scene:caption', tickets: 'setting:tickets', softLimit: 'setting:softLimit', checkAfter: 'setting:checkAfter', sound: 'setting:sound' })
     expect(PREF_PREFIX).toBe('pref:')
   })
 
@@ -665,6 +793,8 @@ describe('persistence (AC-115 to AC-119)', () => {
     expect(sidebarSettingOf('working-shelf on')).toEqual({ key: KEYS.workingShelf, value: true, label: 'Working shelf: on' })
     expect(sidebarSettingOf('working-shelf off')).toEqual({ key: KEYS.workingShelf, value: false, label: 'Working shelf: off' })
     for (const mode of ['auto', 'light', 'dark'] as const) expect(sidebarSettingOf(`theme ${mode}`)).toEqual({ key: KEYS.theme, value: mode, label: `Theme: ${mode}` })
+    for (const mode of ['auto', 'nerd', 'plain'] as const) expect(sidebarSettingOf(`glyphs ${mode}`)).toEqual({ key: KEYS.glyphs, value: mode, label: `Glyphs: ${mode}` })
+    expect(loadStored(new Map<string, unknown>([['setting:glyphs', 'plain']])).stored.settings.glyphs).toBe('plain')
   })
   test('AC-08a, AC-45: sidebarSettingOf ignores case and extra spaces', () => { // amend 2026-10-18: AC-08a, AC-45
     expect(sidebarSettingOf('  ICONS   Off ')).toEqual({ key: KEYS.icons, value: false, label: 'Project icons: off' })
@@ -696,11 +826,20 @@ describe('persistence (AC-115 to AC-119)', () => {
     expect(loadStored(new Map<string, unknown>([['setting:softLimit', 200_000]])).stored.settings.softLimit).toBe(200_000)
     expect(loadStored(new Map<string, unknown>([['setting:softLimit', 0]])).stored.settings.softLimit).toBe(0)
     expect(loadStored(new Map<string, unknown>([['setting:softLimit', '150k']])).resetKeys).toEqual(['setting:softLimit'])
-    expect(DEFAULT_SOFT_LIMIT).toBe(150_000)
+    expect(DEFAULT_SOFT_LIMIT).toBe(100_000)
+    expect(LARGE_WINDOW_SOFT_LIMIT).toBe(300_000)
+  })
+  test('WS-84: /bridge check-after takes whole minutes or off; invalid stored values reset to the 15-minute default', () => {
+    expect(sidebarSettingOf('check-after 20')).toEqual({ key: 'setting:checkAfter', value: 20, label: 'Check after: 20 minutes' })
+    expect(sidebarSettingOf('check-after off')).toEqual({ key: 'setting:checkAfter', value: 0, label: 'Check after: off' })
+    expect(loadStored(new Map<string, unknown>([['setting:checkAfter', 20]])).stored.settings.checkAfter).toBe(20)
+    expect(loadStored(new Map<string, unknown>([['setting:checkAfter', 0]])).stored.settings.checkAfter).toBe(0)
+    expect(loadStored(new Map<string, unknown>([['setting:checkAfter', '20']])).resetKeys).toEqual(['setting:checkAfter'])
+    expect(DEFAULT_CHECK_AFTER_MINUTES).toBe(15)
   })
   test('AC-08a, AC-45: any other argument is an error naming every form', () => { // amend 2026-10-18: AC-08a, AC-45
-    expect(SIDEBAR_ARGS_HINT).toBe('icons on|off · working-shelf on|off · theme auto|light|dark · tickets WS-,AID-|off · soft-limit 150k|off · sound on|off') // amend 2026-10-19: AC-93 -- soft limit: the colour measures tokens against it; AC-G7 -- sound
-    for (const bad of ['icons', 'icons maybe', 'theme blue', 'working-shelf', 'creatures off', 'icons on now', 'theme', 'on', 'tickets', 'soft-limit', 'soft-limit lots', 'soft-limit 0', 'soft-limit -5k']) {
+    expect(SIDEBAR_ARGS_HINT).toBe('icons on|off · working-shelf on|off · glyphs auto|nerd|plain · theme auto|light|dark · tickets WS-,AID-|off · soft-limit 100k|off · check-after 15|off · sound on|off')
+    for (const bad of ['icons', 'icons maybe', 'theme blue', 'working-shelf', 'creatures off', 'icons on now', 'theme', 'on', 'tickets', 'soft-limit', 'soft-limit lots', 'soft-limit 0', 'soft-limit -5k', 'check-after', 'check-after 0', 'check-after 1.5', 'check-after -5']) {
       expect(sidebarSettingOf(bad)).toEqual({ error: `Unknown setting. Use: /bridge ${SIDEBAR_ARGS_HINT}` })
     }
   })
@@ -791,7 +930,7 @@ describe('line widths (AC-09, AC-12, AC-15, AC-19b, AC-23)', () => {
     ['away', { status: 'working' }, { away: 'Terminal.app' }],
   ]
   const full: Partial<Session> = { branch: LONG, title: LONG, reason: LONG, model: 'opus', pr: 123456, contextPercent: 88, project: LONG }
-  const children = [CHILD('c1', 'RUNNING'), CHILD('c2', 'WAITING'), CHILD('c3', 'DONE')]
+  const children = [CHILD('c1', 'working'), CHILD('c2', 'working'), CHILD('c3', 'done')]
 
   // About 3 s of layout on an idle machine, so it gets 20 s: under load it crossed the default 5 s limit.
   test('every line is exactly the requested width in cells, from 12 to 110, with 200-character texts', { timeoutMs: 20_000 }, () => {
@@ -877,20 +1016,33 @@ describe('line 1 (AC-09, AC-19b, AC-20 to AC-27, AC-60, AC-61, AC-62, I-6)', () 
     expect(segs).toContainEqual(expect.objectContaining({ text: ' Working', color: PALETTE.text.yellow }))
     expect(segs).toContainEqual(expect.objectContaining({ text: ' 5m', dim: true }))
   })
-  test('AC-21, AC-22: the needs-you pill is 15 cells in all three bell frames, filled red', () => { // amend 2026-10-18: AC-21 -- the braille bell is three cells
-    const texts = ([0, 1, 2] as const).map(bell => {
-      const segs = line1Of(card({}, { status: 'needs-you', bell }), W)
-      const pill = segs.at(-1)!
-      expect(pill).toMatchObject({ color: PALETTE.pill.red.fg, bg: PALETTE.pill.red.bg })
-      expect(cells([pill])).toBe(15)
-      expect(cells(segs)).toBe(W)
-      return (pill as { text: string }).text
-    })
-    expect(texts).toEqual([' ⠼⡿⠄ Needs you ', ' ⢼⠿⠄ Needs you ', ' ⠼⢿⠄ Needs you '])
+  test('AC-21, AC-22: plain and Nerd pills keep one-cell caps and a fixed-width shaking bell slot', () => {
+    for (const glyphMode of ['plain', 'nerd'] as const) {
+      const texts = ([0, 1, 2] as const).map(bell => {
+        const segs = line1Of(card({}, { status: 'needs-you', bell, glyphMode }), W)
+        const pill = segs.filter(seg => seg.kind === 'text' && seg.role === 'status')
+        expect(pill).toHaveLength(1)
+        expect(pill[0]).toMatchObject({ color: PALETTE.pill.red.fg, bg: PALETTE.pill.red.bg })
+        expect(cells(segs)).toBe(W)
+        const caps = segs.filter(seg => seg.kind === 'text' && (seg.text === '▐' || seg.text === '▌' || seg.text === '\ue0b6' || seg.text === '\ue0b4'))
+        expect(caps.every(cap => cellWidth(cap.text) === 1 && cap.color === PALETTE.pill.red.bg)).toBe(true)
+        return (pill[0] as { text: string }).text
+      })
+      expect(new Set(texts.map(cellWidth))).toEqual(new Set([cellWidth(texts[0]!)]))
+      expect(texts.every(text => text.includes(glyphMode === 'plain' ? '!' : '\uf0f3'))).toBe(true)
+      expect(texts.every(text => text.indexOf('Needs you') === 2)).toBe(true)
+      // the bell rests left and shakes one cell right only: two distinct frames
+      expect([...new Set(texts)]).toHaveLength(2)
+    }
+    expect(glyphModeOf('auto', 'ghostty')).toBe('nerd')
+    expect(glyphModeOf('auto', 'iTerm.app')).toBe('nerd')
+    expect(glyphModeOf('auto', 'Apple_Terminal')).toBe('plain')
+    expect(glyphModeOf('plain', 'ghostty')).toBe('plain')
+    expect(glyphModeOf('nerd', 'someterm')).toBe('nerd')
   })
   test('AC-25: done is a gray pill with a check', () => {
-    const pill = line1Of(card({}, { status: 'done' }), W).at(-1)!
-    expect(pill).toMatchObject({ text: ' ✓ Done ', color: PALETTE.pill.gray.fg, bg: PALETTE.pill.gray.bg })
+    const pill = line1Of(card({}, { status: 'done' }), W).find(seg => seg.kind === 'text' && seg.role === 'status')!
+    expect(pill).toMatchObject({ text: '✓ Done ', color: PALETTE.pill.gray.fg, bg: PALETTE.pill.gray.bg })
   })
   test('AC-26, AC-27: idle shows the age, dim; unknown time shows nothing', () => {
     expect(line({ statusSince: NOW - 59 * MIN })).toMatch(/ 59m$/)
@@ -923,9 +1075,16 @@ describe('line 1 (AC-09, AC-19b, AC-20 to AC-27, AC-60, AC-61, AC-62, I-6)', () 
   })
   test('the slot is never cut while it fits, even when the project goes', () => {
     const text = plain(line1Of(card({ project: 'A very long project name' }, { status: 'needs-you' }), 18))
-    expect(text.endsWith('Needs you ')).toBe(true)
+    expect(text.endsWith('Needs you\u00a0▌')).toBe(true)
     expect(cellWidth(text)).toBe(18)
   })
+})
+
+test('AC-WS84: a 44-column dock has 42-cell inset lines and full cards have one blank row between them, which half-row edges on a selected card replace', () => {
+  expect(ROW_HORIZONTAL_PADDING).toBe(1)
+  expect(CARD_GAP_ROWS).toBe(1)
+  expect([CARD_EDGE_TOP, CARD_EDGE_BOTTOM]).toEqual(['\u2584', '\u2580'])
+  for (const line of [line1Of(card(), 42), line2Of(card(), 42), line3Of(card(), 42)]) expect(cells(line)).toBe(42)
 })
 
 // amend 2026-10-18: AC-11b -- The ticket chip before the title (prefixes from /bridge tickets).
@@ -941,9 +1100,9 @@ describe('ticket chip (AC-11b)', () => {
   })
   test('line 2 shows the id as a muted chip, then the title without the id; nothing without prefixes', () => {
     const fromTitle = line2Of(card({ title: 'WS-84 — Claude sidebar' }, { tickets: T }), 30)
-    expect(fromTitle[0]).toMatchObject({ text: 'WS-84', color: PALETTE.pill.gray.fg, bg: PALETTE.pill.gray.bg })
-    expect(plain(fromTitle).trimEnd()).toBe('WS-84 Claude sidebar')
-    expect(plain(line2Of(card({ title: 'Claude sidebar', branch: 'ws/WS-84-x' }, { tickets: T }), 30)).trimEnd()).toBe('WS-84 Claude sidebar')
+    expect(fromTitle[1]).toMatchObject({ text: 'WS-84', color: PALETTE.pill.gray.fg, bg: PALETTE.pill.gray.bg })
+    expect(plain(fromTitle).replace(/[▐▌]/g, '').replace(/\u00a0/g, ' ').trimEnd()).toBe('WS-84 Claude sidebar')
+    expect(plain(line2Of(card({ title: 'Claude sidebar', branch: 'ws/WS-84-x' }, { tickets: T }), 30)).replace(/[▐▌]/g, '').replace(/\u00a0/g, ' ').trimEnd()).toBe('WS-84 Claude sidebar')
     expect(plain(line2Of(card({ title: 'WS-84 Claude sidebar' }), 30)).trimEnd()).toBe('WS-84 Claude sidebar')
     expect(line2Of(card({ title: 'WS-84 Claude sidebar' }), 30)[0]).not.toHaveProperty('bg')
     expect(cells(line2Of(card({ title: 'WS-84 '.repeat(20) }, { tickets: T }), 30))).toBe(30)
@@ -951,7 +1110,7 @@ describe('ticket chip (AC-11b)', () => {
 })
 
 describe('line 3 (AC-12 to AC-16, AC-23, AC-24, AC-34, AC-62, AC-93, AC-94)', () => {
-  const kids = (n: number) => Array.from({ length: n }, (_, i) => CHILD(`k${i}`, 'RUNNING', i))
+  const kids = (n: number) => Array.from({ length: n }, (_, i) => CHILD(`k${i}`, 'working', i))
   const own = { isSelf: true, branch: 'main', model: 'opus', pr: 42, contextPercent: 70 }
   const l3 = (width: number, over: Partial<Session> = {}, extra: Partial<CardInput> = {}) => plain(line3Of(card({ ...own, ...over }, { children: kids(4), ...extra }), width)).trimEnd()
 
@@ -960,12 +1119,12 @@ describe('line 3 (AC-12 to AC-16, AC-23, AC-24, AC-34, AC-62, AC-93, AC-94)', ()
 
   // amend 2026-10-18: AC-12
   test('AC-12, AC-13: the branch at the left; badge, model, PR and context right-aligned, in that order', () => {
-    expect(l3(60)).toBe(lr(60, '⎇ main', '●●● 4 opus #42 70%')) // amend 2026-10-18: AC-12
+    expect(l3(60)).toBe(lr(60, '⎇ main', '●●● 4 opus PR #42 70%'))
   })
   test('AC-14: details drop from the end, one at a time, as the line narrows; the branch lasts longest', () => {
     // amend 2026-10-18: AC-14 -- right-aligned details, a plain percentage; the drop order is unchanged.
     const steps: Array<[number, string]> = [
-      [25, '⎇ main ●●● 4 opus #42 70%'], [24, lr(24, '⎇ main', '●●● 4 opus #42')], [21, '⎇ main ●●● 4 opus #42'], [20, lr(20, '⎇ main', '●●● 4 opus')],
+      [28, '⎇ main ●●● 4 opus PR #42 70%'], [27, lr(27, '⎇ main', '●●● 4 opus PR #42')], [24, '⎇ main ●●● 4 opus PR #42'], [23, lr(23, '⎇ main', '●●● 4 opus')],
       [17, '⎇ main ●●● 4 opus'], [16, lr(16, '⎇ main', '●●● 4')], [12, '⎇ main ●●● 4'], [11, '⎇ main'], [6, '⎇ main'], [5, '⎇ ma…'], [3, '⎇ …'], [2, ''],
     ]
     for (const [width, expected] of steps) {
@@ -974,7 +1133,7 @@ describe('line 3 (AC-12 to AC-16, AC-23, AC-24, AC-34, AC-62, AC-93, AC-94)', ()
     }
   })
   test('AC-16: no branch gives no mark; the details stay at the right edge', () => {
-    expect(l3(60, { branch: undefined })).toBe(lr(60, '', '●●● 4 opus #42 70%')) // amend 2026-10-18: AC-16
+    expect(l3(60, { branch: undefined })).toBe(lr(60, '', '●●● 4 opus PR #42 70%'))
     expect(l3(60, { branch: undefined, model: undefined, pr: undefined, contextPercent: undefined }, { children: [] })).toBe('')
   })
   test('AC-34: one dot per subagent up to three, then the total count', () => {
@@ -982,11 +1141,11 @@ describe('line 3 (AC-12 to AC-16, AC-23, AC-24, AC-34, AC-62, AC-93, AC-94)', ()
     expect(l3(60, { model: undefined, pr: undefined, contextPercent: undefined }, { children: kids(7) })).toBe(lr(60, '⎇ main', '●●● 7')) // amend 2026-10-18: AC-12
   })
   test('AC-36: another session has no badge even when the child list is given', () => {
-    expect(l3(60, { isSelf: false })).toBe(lr(60, '⎇ main', 'opus #42 70%')) // amend 2026-10-18: AC-12
+    expect(l3(60, { isSelf: false })).toBe(lr(60, '⎇ main', 'opus PR #42 70%'))
   })
-  test('AC-32: dots take the tag colour of the most urgent children', () => {
-    const segs = line3Of(card(own, { children: [CHILD('a', 'DONE', 1), CHILD('b', 'RUNNING', 2), CHILD('c', 'WAITING', 3), CHILD('d', 'FAILED', 4)] }), 60)
-    expect(segs.filter(seg => seg.kind === 'text' && seg.text === '●').map(seg => (seg as { color?: string }).color)).toEqual([PALETTE.text.orange, PALETTE.text.blue, PALETTE.text.red])
+  test('AC-32: dots take the card-status colour of the most urgent children', () => {
+    const segs = line3Of(card(own, { children: [CHILD('a', 'done', 1), CHILD('b', 'working', 2), CHILD('c', 'working', 3), CHILD('d', 'failed', 4)] }), 60)
+    expect(segs.filter(seg => seg.kind === 'text' && seg.text === '●').map(seg => (seg as { color?: string }).color)).toEqual([PALETTE.text.red, PALETTE.text.yellow, PALETTE.text.yellow])
   })
   // amend 2026-10-18: AC-93 -- a plain percentage, muted below 75, orange from 75, red at 100 and above.
   test('AC-93: context is a plain percentage; muted below 75, orange from 75, red at 100 and above', () => {
@@ -1054,29 +1213,44 @@ describe('one-line card (AC-18, AC-44)', () => {
 
 describe('child rows (AC-30 to AC-35, AC-92)', () => {
   test('AC-92: waiting, then running, then the rest, each newest first', () => {
-    const order = sortChildren([CHILD('d1', 'DONE', 50), CHILD('r1', 'RUNNING', 10), CHILD('w1', 'WAITING', 5), CHILD('r2', 'RUNNING', 30), CHILD('f1', 'FAILED', 40), CHILD('w2', 'WAITING', 8)]).map(child => child.id)
-    expect(order).toEqual(['w2', 'w1', 'r2', 'r1', 'd1', 'f1'])
+    const order = sortChildren([CHILD('d1', 'done', 50), CHILD('r1', 'working', 10), CHILD('w1', 'working', 5), CHILD('r2', 'working', 30), CHILD('f1', 'failed', 40), CHILD('i1', 'idle', 60)]).map(child => child.id)
+    expect(order).toEqual(['f1', 'r2', 'r1', 'w1', 'i1', 'd1'])
   })
-  test('AC-30, AC-31, AC-32: indent, rule, dot, label, uppercase tag and age in the tag colour', () => {
-    const tags: Array<[ChildTag, string]> = [['RUNNING', PALETTE.text.blue], ['WAITING', PALETTE.text.orange], ['DONE', PALETTE.text.gray], ['FAILED', PALETTE.text.red], ['STOPPED', PALETTE.text.gray]]
-    for (const [tag, color] of tags) {
-      const row = childRowOf(CHILD('a', tag, 0, NOW - 2 * MIN), 40, NOW, PALETTE)
-      expect(plain(row.text)).toBe(`  │ ● task a${' '.repeat(40 - 12 - tag.length - 3)}${tag} 2m`)
+  test('AC-30, AC-31, AC-32: indent, rule, dot, label and glyph-plus-word status', () => {
+    const states: Array<[ChildStatus, string, string]> = [['working', PALETTE.text.yellow, 'Working 2m'], ['done', PALETTE.text.gray, '✓ Done'], ['failed', PALETTE.text.red, '✕ Failed'], ['idle', PALETTE.text.gray, '2m']]
+    for (const [status, color, shown] of states) {
+      const row = childRowOf(CHILD('a', status, 0, NOW - 2 * MIN), 40, NOW, PALETTE)
+      expect(plain(row.text)).toContain(shown)
       expect(cells(row.text)).toBe(40)
       expect(row.text.find(seg => seg.kind === 'text' && seg.text === '●')).toMatchObject({ color })
-      expect(row.text.filter(seg => seg.kind === 'text' && seg.role === 'status').map(seg => (seg as { text: string }).text)).toEqual([tag, ' 2m'])
     }
   })
-  test('AC-33: only a waiting row has the warm tint, on every run', () => {
-    const waiting = childRowOf(CHILD('a', 'WAITING'), 40, NOW, PALETTE)
-    expect(waiting.bg).toBe(PALETTE.waitingRow)
-    expect(waiting.text.every(seg => seg.kind === 'text' && seg.bg === PALETTE.waitingRow)).toBe(true)
-    const running = childRowOf(CHILD('a', 'RUNNING'), 40, NOW, PALETTE)
-    expect(running.bg).toBeUndefined()
-    expect(running.text.some(seg => seg.kind === 'text' && seg.bg !== undefined)).toBe(false)
+  test('AC-32: a child engine waiting state uses the yellow Working slot without a row tint', () => {
+    const waiting = childrenOf([{ id: 'a', status: 'waiting', description: 'a', type: 'general-purpose' }], [], {}, NOW).list[0]!
+    const row = childRowOf(waiting, 40, NOW, PALETTE)
+    expect(waiting.status).toBe('working')
+    expect(plain(row.text)).toContain('Working')
+    expect(row.bg).toBeUndefined()
+  })
+  test('Done child rows have no caps and 44-column dock rows fit in Nerd and plain modes', () => {
+    const done = CHILD('done', 'done', 0, NOW - 5 * HOUR)
+    for (const mode of ['nerd', 'plain'] as const) {
+      const row = childRowOf(done, 42, NOW, PALETTE, mode)
+      expect(plain(row.text)).toContain('✓ Done')
+      expect(plain(row.text)).not.toMatch(/[\ue0b4\ue0b6▐▌]/)
+      expect(cells(row.text)).toBe(42)
+    }
+  })
+  test('a Needs-you child shakes in a fixed slot without moving its word', () => {
+    for (const mode of ['nerd', 'plain'] as const) {
+      const rows = ([0, 1, 2] as const).map(bell => plain(childRowOf(CHILD('ask', 'needs-you'), 42, NOW, PALETTE, mode, bell).text))
+      expect(rows.map(cellWidth)).toEqual([42, 42, 42])
+      expect(rows.map(row => row.indexOf('Needs you'))).toEqual([rows[0]!.indexOf('Needs you'), rows[0]!.indexOf('Needs you'), rows[0]!.indexOf('Needs you')])
+      expect([...new Set(rows)]).toHaveLength(2)
+    }
   })
   test('a long label is cut and the row keeps the width at every width from 14 up', () => {
-    const child = { ...CHILD('a', 'RUNNING'), label: '日本語'.repeat(40) }
+    const child = { ...CHILD('a', 'working'), label: '日本語'.repeat(40) }
     for (let width = 14; width <= 80; width++) expect(cells(childRowOf(child, width, NOW, PALETTE).text)).toBe(width)
   })
   test('fitSegs pads a short line and cuts the run that overflows', () => {
@@ -1104,8 +1278,8 @@ describe('paneViewOf', () => {
     const v = view(ONE_PER_SHELF, { stored: withEntries({ settings: SHELF_ON }) }) // amend 2026-10-18: AC-08a
     expect(v.shelves.map(one => [one.id, one.isCollapsed])).toEqual([['pinned', false], ['active', false], ['working', false], ['inactive', true], ['snoozed', true], ['parked', true], ['settled', true]])
     const header = (id: ShelfId) => v.shelves.find(one => one.id === id)!.header
-    expect(header('active')).toBe(headerOf('Active', 1, false, 44, ' ↕')) // amend 2026-10-18: AC-68 -- the open Active header carries the sort mark
-    expect(header('settled')).toBe(headerOf('Settled', 1, true, 44))
+    expect(header('active')).toBe(headerOf('Active', 1, false, 42, ' ↕')) // amend 2026-10-18: AC-68 -- the open Active header carries the sort mark
+    expect(header('settled')).toBe(headerOf('Settled', 1, true, 42))
     expect(header('settled')).toContain('Settled (1)')
     expect(header('active')).not.toContain('(')
     expect(v.shelves.filter(one => one.isCollapsed).every(one => one.cards.length === 0)).toBe(true)
@@ -1115,7 +1289,22 @@ describe('paneViewOf', () => {
     const opened = { ...DEFAULT_COLLAPSED, settled: false }
     const v = view(ONE_PER_SHELF, { stored: withEntries({ collapsed: opened }) })
     expect(ids(v, 'settled')).toEqual(['stl'])
-    expect(v.shelves.find(one => one.id === 'settled')!.header).toBe(headerOf('Settled', 1, false, 44))
+    expect(v.shelves.find(one => one.id === 'settled')!.header).toBe(headerOf('Settled', 1, false, 42))
+  })
+  // amend 2026-10-19: the default soft limit follows the context window; a stored one wins.
+  test('the default soft limit is 100k up to a 200k window or an unknown one, 300k above; a stored limit wins', () => {
+    expect([undefined, 0, 200_000, 200_001, 1_000_000].map(defaultSoftLimitOf)).toEqual([100_000, 100_000, 100_000, 300_000, 300_000])
+    const tone = (over: Partial<Session>, stored = loaded()) => {
+      const card = view([idle('c', { contextPercent: 20, ...over })], { stored }).shelves.flatMap(one => one.cards)[0]!
+      const seg = card.lines[2]!.find(one => one.kind === 'text' && one.text.includes('%')) as { color?: string; dim?: boolean }
+      return seg.color === PALETTE.text.red ? 'red' : seg.color === PALETTE.text.orange ? 'orange' : seg.dim ? 'dim' : 'other'
+    }
+    expect(tone({ contextTokens: 200_000, contextWindow: 1_000_000 })).toBe('dim')
+    expect(tone({ contextTokens: 240_000, contextWindow: 1_000_000 })).toBe('orange')
+    expect(tone({ contextTokens: 80_000, contextWindow: 200_000 })).toBe('orange')
+    expect(tone({ contextTokens: 100_000 })).toBe('red')
+    expect(tone({ contextTokens: 200_000, contextWindow: 1_000_000 }, loaded([['setting:softLimit', 250_000]]))).toBe('orange')
+    expect(tone({ contextTokens: 100_000 }, loaded([['setting:softLimit', 0]]))).toBe('dim')
   })
   test('AC-06: an empty shelf is not in the view, but Active always is', () => {
     const v = view([idle('only')])
@@ -1184,20 +1373,20 @@ describe('paneViewOf', () => {
     const v = view([idle('w', { raw: 'busy' }), idle('p', { raw: 'busy' })], { stored: storedWith({ settings: SHELF_ON, entries: { p: { isPinned: true } } }) }) // amend 2026-10-18: AC-08a
     const working = v.shelves.find(one => one.id === 'working')!.cards[0]!
     expect([working.form, working.lines.length, working.icon]).toEqual(['line', 1, MONO])
-    expect(cells(working.lines[0]!)).toBe(41)
+    expect(cells(working.lines[0]!)).toBe(39)
     const pinned = v.shelves.find(one => one.id === 'pinned')!.cards[0]!
     expect([pinned.form, pinned.lines.length, pinned.icon]).toEqual(['full', 3, MONO])
   })
   test('AC-41, AC-46: line 1 shrinks by the icon (3 cells); lines 2 and 3 take the full width', () => {
     const lineWidths = (v: ReturnType<typeof view>) => v.shelves[0]!.cards[0]!.lines.map(cells)
     const one = [idle('a')]
-    expect(lineWidths(view(one))).toEqual([41, 44, 44])
-    expect(lineWidths(view(one, { caps: NO_COLOR_TERM }))).toEqual([41, 44, 44])
-    expect(lineWidths(view(one, { stored: storedWith({ settings: { icons: false, theme: 'auto', workingShelf: false } }) }))).toEqual([44, 44, 44])
+    expect(lineWidths(view(one))).toEqual([39, 42, 42])
+    expect(lineWidths(view(one, { caps: NO_COLOR_TERM }))).toEqual([39, 42, 42])
+    expect(lineWidths(view(one, { stored: storedWith({ settings: { icons: false, theme: 'auto', workingShelf: false } }) }))).toEqual([42, 42, 42])
     expect(view(one, { stored: storedWith({ settings: { icons: false, theme: 'auto', workingShelf: false } }) }).shelves[0]!.cards[0]!.icon).toEqual({ kind: 'none' })
-    expect(lineWidths(view(one, { width: 30 }))).toEqual([27, 30, 30])
+    expect(lineWidths(view(one, { width: 30 }))).toEqual([28, 28, 28])
     const narrow = view(one, { width: 29, stored: storedWith({ settings: { icons: true, theme: 'auto', workingShelf: false } }) })
-    expect(lineWidths(narrow)).toEqual([29, 29, 29])
+    expect(lineWidths(narrow)).toEqual([27, 27, 27])
     expect(narrow.settings.icons).toBe(true)
     expect(narrow.shelves[0]!.cards[0]!.icon.kind).toBe('none')
   })
@@ -1222,7 +1411,7 @@ describe('paneViewOf', () => {
     const bare = view([idle('a', { project: '', title: 'only-a-name' })])
     const card = bare.shelves[0]!.cards[0]!
     expect(card.icon).toEqual({ kind: 'none' })
-    expect(card.lines.map(cells)).toEqual([44, 44, 44])
+    expect(card.lines.map(cells)).toEqual([42, 42, 42])
     expect(card.lines[0]!.map(seg => (seg.kind === 'text' ? seg.text : '')).join('')).not.toMatch(/session/)
     expect(card.lines[1]!.find(seg => seg.kind === 'text' && seg.role === 'title')).toMatchObject({ text: 'only-a-name' })
   })
@@ -1289,7 +1478,7 @@ describe('paneViewOf', () => {
   })
 
   test('AC-30, AC-35, AC-36, AC-91: only the own card has child rows; five at most, then +N more', () => {
-    const kids = (n: number) => Array.from({ length: n }, (_, i) => CHILD(`k${i}`, i === 0 ? 'WAITING' : 'RUNNING', i))
+    const kids = (n: number) => Array.from({ length: n }, (_, i) => CHILD(`k${i}`, i === 0 ? 'failed' : 'working', i))
     const sessions = [idle('me', { isSelf: true }), idle('other')]
     for (const [count, rows, more] of [[0, 0, undefined], [5, 5, undefined], [6, 5, '+1 more'], [8, 5, '+3 more']] as const) {
       const v = view(sessions, { children: kids(count) })
@@ -1303,23 +1492,23 @@ describe('paneViewOf', () => {
     const v = view(sessions, { children: kids(3) })
     const rows = v.shelves[0]!.cards.find(one => one.id === 'me')!.children!.rows
     expect(rows.map(row => row.id)).toEqual(['k0', 'k2', 'k1'])
-    expect(rows.map(row => row.bg)).toEqual([PALETTE.waitingRow, undefined, undefined])
-    expect(rows.every(row => cells(row.text) === 44)).toBe(true)
+    expect(rows.map(row => row.bg)).toEqual([undefined, undefined, undefined])
+    expect(rows.every(row => cells(row.text) === 42)).toBe(true)
   })
 
   test('AC-47, AC-48, AC-50: the scene follows the Active-empty table', () => {
     const none = view([])
-    expect(none.scene).toMatchObject({ kind: 'hills', showArt: true, width: 44 })
+    expect(none.scene).toMatchObject({ kind: 'hills', showArt: true, width: 42 })
     expect(none.scene!.caption.trim()).toBe(ALL_CLEAR)
-    const spare = 44 - ALL_CLEAR.length
-    expect(none.scene!.caption.length).toBe(44)
+    const spare = 42 - ALL_CLEAR.length
+    expect(none.scene!.caption.length).toBe(42)
     expect(Math.abs(none.scene!.caption.search(/\S/) - (spare - none.scene!.caption.search(/\S/)))).toBeLessThanOrEqual(1)
 
     const working = view([idle('w', { raw: 'busy' })], { caption: 3, stored: storedWith({ settings: SHELF_ON }) }) // amend 2026-10-18: AC-08a
     expect(working.scene).toMatchObject({ kind: 'working' })
-    expect(working.scene!.caption.trim()).toBe(WORKING_CAPTIONS[3])
-    expect(working.scene!.caption.length).toBe(44)
-    expect(view([idle('w', { raw: 'busy' })], { stored: storedWith({ caption: 5, settings: SHELF_ON }) }).scene!.caption.trim()).toBe(WORKING_CAPTIONS[5])
+    expect(working.scene!.caption.trim()).toBe(fitCells(WORKING_CAPTIONS[3]!, 42))
+    expect(working.scene!.caption.length).toBe(42)
+    expect(view([idle('w', { raw: 'busy' })], { stored: storedWith({ caption: 5, settings: SHELF_ON }) }).scene!.caption.trim()).toBe(fitCells(WORKING_CAPTIONS[5]!, 42))
 
     expect(view([idle('me', { isSelf: true })]).scene).toBeUndefined()
     expect(view([idle('me', { isSelf: true, raw: 'busy' })], { stored: storedWith({ settings: SHELF_ON }) }).scene).toMatchObject({ kind: 'working' }) // amend 2026-10-18: AC-08a
@@ -1334,8 +1523,9 @@ describe('paneViewOf', () => {
     expect(view([], { caps: NO_COLOR_TERM }).scene!.showArt).toBe(false)
     expect(view([], { stored: storedWith({ settings: { icons: false, theme: 'auto', workingShelf: false } }) }).scene!.showArt).toBe(true)
     expect(view([], { width: 29 }).scene!.showArt).toBe(false)
-    expect(view([], { width: 30 }).scene!.showArt).toBe(true)
-    expect(cellWidth(view([], { width: 29 }).scene!.caption)).toBe(29)
+    expect(view([], { width: 30 }).scene!.showArt).toBe(false)
+    expect(view([], { width: 32 }).scene!.showArt).toBe(true)
+    expect(cellWidth(view([], { width: 29 }).scene!.caption)).toBe(27)
     expect(view([], { width: 29 }).scene!.caption.startsWith('All clear.')).toBe(true)
   })
 
@@ -1348,7 +1538,7 @@ describe('paneViewOf', () => {
   test('edge "dock narrower": the setting value is unchanged below 30 columns', () => {
     const v = view([idle('a')], { width: 12 })
     expect(v.settings).toEqual({ icons: true, theme: 'auto', workingShelf: false }) // amend 2026-10-18: AC-45, AC-08a
-    expect(v.shelves[0]!.cards[0]!.lines.every(line => cells(line) === 12)).toBe(true)
+    expect(v.shelves[0]!.cards[0]!.lines.every(line => cells(line) === 10)).toBe(true)
   })
 })
 
@@ -1382,10 +1572,21 @@ describe('project icons (AC-42, AC-43) and background tasks (AC-13a)', () => {
     expect(argv[2]).toContain('rsvg-convert -w 64 -h 64')
     expect(argv[2]).toContain('sips -s format png -Z 64')
   })
+  test('icon limits: a source over 1 MB is skipped; a raster over 1024 px a side is refused before converting, an svg is not measured', () => {
+    expect(isIconSizeUsable(1)).toBe(true)
+    expect(isIconSizeUsable(ICON_MAX_BYTES)).toBe(true)
+    expect(isIconSizeUsable(ICON_MAX_BYTES + 1)).toBe(false)
+    expect(isIconSizeUsable(0)).toBe(false)
+    const script = iconConvertArgv('/c', '/p/a/icon.png', '/c/x.png')[2]!
+    expect(script).toContain('sips -g pixelWidth -g pixelHeight')
+    expect(script).toContain(`$2 > ${ICON_MAX_SIDE}`)
+    expect(script.indexOf('sips -g pixelWidth')).toBeLessThan(script.indexOf('sips -s format png'))
+    expect(script).toMatch(/\*\.svg\|\*\.SVG\) ;;/)
+  })
   test('AC-G5: line 3 has no background-task count; the badge and model stay', () => {
     const own = { isSelf: true, branch: 'main', model: 'opus', background: [{ id: 'b1', kind: 'Command' as const, label: 'npm test', firstSeenAt: NOW - MIN }] }
     const lr = (width: number, left: string, right: string) => `${left}${' '.repeat(width - cellWidth(left) - cellWidth(right))}${right}`
-    const l3 = plain(line3Of(card(own, { children: [CHILD('k', 'RUNNING', 1)] }), 60)).trimEnd()
+    const l3 = plain(line3Of(card(own, { children: [CHILD('k', 'working', 1)] }), 60)).trimEnd()
     expect(l3).toBe(lr(60, '⎇ main', '● 1 opus'))
     expect(l3).not.toContain('⟳')
   })
@@ -1410,23 +1611,38 @@ describe('Failed and Check? (AC-G1 to AC-G3, AC-G8)', () => {
     expect(statusOf('busy', 0, 500, undefined, undefined, { failedAt: 600 })).toBe('working')
     expect(statusOf('waiting', 0, 500, undefined, undefined, { failedAt: 600 })).toBe('needs-you')
   })
-  test('AC-G3: the own idle card with background tasks reads Check?; an empty list reads the normal idle slot', () => {
-    expect(statusOf('idle', 0, undefined, undefined, undefined, { background: 1 })).toBe('check')
-    expect(statusOf('idle', 0, 500, undefined, undefined, { background: 2 })).toBe('check')
+  test('AC-G3: an ended own turn with background tasks is Background, then Check? only after its silence threshold', () => {
+    const endedAt = NOW - 5 * MIN
+    const own = { background: 1, isTurnOver: true }
+    expect(statusOf('idle', endedAt, undefined, undefined, undefined, own, NOW)).toBe('background')
+    expect(statusOf('busy', endedAt, undefined, undefined, undefined, own, NOW)).toBe('background')
+    expect(statusOf('idle', endedAt, undefined, undefined, undefined, own, endedAt + DEFAULT_CHECK_AFTER_MINUTES * MIN)).toBe('check')
+    expect(statusOf('idle', endedAt, undefined, undefined, undefined, own, endedAt + 2 * HOUR, 0)).toBe('background')
+    expect(statusOf('idle', endedAt, 500, undefined, undefined, { background: 2, isTurnOver: true }, NOW)).toBe('background')
     expect(statusOf('idle', 0, undefined, undefined, undefined, { background: 0 })).toBe('idle')
     expect(statusOf('busy', 0, undefined, undefined, undefined, { background: 1 })).toBe('working')
-    expect(statusOf('idle', 0, undefined, undefined, undefined, { failedAt: 1, background: 1 })).toBe('failed')
-    expect(statusOf('idle', 0, undefined, undefined, 5, { background: 1 })).toBe('needs-you')
+    expect(statusOf('idle', endedAt, undefined, undefined, undefined, { failedAt: 1, background: 1, isTurnOver: true }, NOW)).toBe('failed')
+    expect(statusOf('idle', endedAt, undefined, undefined, 5, { background: 1, isTurnOver: true }, NOW)).toBe('needs-you')
+    // The Owner's order once the turn is over: Needs you, Check?, Failed, Background.
+    const stale = endedAt + DEFAULT_CHECK_AFTER_MINUTES * MIN
+    expect(statusOf('idle', endedAt, undefined, undefined, undefined, { failedAt: 1, background: 1, isTurnOver: true }, stale)).toBe('check')
+    expect(statusOf('failed', endedAt, undefined, undefined, undefined, { background: 1, isTurnOver: true }, stale)).toBe('check')
+    expect(statusOf('failed', endedAt, undefined, undefined, undefined, { background: 1, isTurnOver: true }, NOW)).toBe('failed')
+    expect(statusOf('idle', endedAt, undefined, undefined, 5, { background: 1, isTurnOver: true }, stale)).toBe('needs-you')
   })
-  test('AC-G1, AC-G3: the slot draws a red Failed pill and yellow Check? with the age', () => {
+  test('AC-G1, AC-G3: the slot draws a red Failed pill, green Background gear, and orange Check? with ages', () => {
     const failed = line1Of(card({}, { status: 'failed' }), 40)
-    expect(plain(failed).endsWith(' ✕ Failed ')).toBe(true)
-    const pill = failed.find(seg => seg.kind === 'text' && seg.text === ' ✕ Failed ')
+    expect(plain(failed).endsWith('▐✕ Failed ▌')).toBe(true)
+    const pill = failed.find(seg => seg.kind === 'text' && seg.text === '✕ Failed ')
     expect(pill).toMatchObject({ color: PALETTE.pill.red.fg, bg: PALETTE.pill.red.bg, role: 'status' })
+    const background = line1Of(card({ statusSince: NOW - 5 * MIN }, { status: 'background', glyphMode: 'plain' }), 40)
     const check = line1Of(card({ statusSince: NOW - 5 * MIN }, { status: 'check' }), 40)
+    expect(plain(background).endsWith('↻ Background 5m')).toBe(true)
+    expect(background.find(seg => seg.kind === 'text' && seg.text === ' Background')).toMatchObject({ color: PALETTE.text.green })
     expect(plain(check).endsWith('Check? 5m')).toBe(true)
-    expect(check.find(seg => seg.kind === 'text' && seg.text === 'Check?')).toMatchObject({ color: PALETTE.text.yellow })
+    expect(check.find(seg => seg.kind === 'text' && seg.text === 'Check?')).toMatchObject({ color: PALETTE.text.orange })
     expect(cells(failed)).toBe(40)
+    expect(cells(background)).toBe(40)
     expect(cells(check)).toBe(40)
   })
   test('AC-G8: Failed sits on Active even when put away, wakes and returns; Check? sits on Active unless put away', () => {
@@ -1437,14 +1653,15 @@ describe('Failed and Check? (AC-G1 to AC-G3, AC-G8)', () => {
     expect(shelfOf(s, 'failed', { snoozedUntil: NOW + HOUR }, undefined, NOW)).toBe('active')
     expect(wakeOf({ snoozedUntil: NOW + HOUR }, 'failed', NOW)).toBe('attention')
     expect(returnedOf(NOW - MIN, 'failed', undefined)).toBe(true)
-    // amend 2026-10-19: review P3-1 -- Check? does not override Park, Snooze or Settle.
-    expect(shelfOf(s, 'check', undefined, undefined, NOW)).toBe('active')
-    expect(shelfOf(s, 'check', { isParked: true, parkedAt: NOW - MIN }, undefined, NOW)).toBe('parked')
-    expect(shelfOf(s, 'check', { isSettled: true, settledAt: NOW - MIN }, undefined, NOW)).toBe('settled')
-    expect(shelfOf(s, 'check', { snoozedUntil: NOW + HOUR }, undefined, NOW)).toBe('snoozed')
-    expect(wakeOf({ snoozedUntil: NOW + HOUR }, 'check', NOW)).toBeNull()
-    expect(returnedOf(NOW - MIN, 'check', undefined)).toBe(false)
-    for (const status of ['failed', 'check'] as const) expect(shelfOf(s, status, { isPinned: true }, undefined, NOW)).toBe('pinned')
+    for (const status of ['background', 'check'] as const) {
+      expect(shelfOf(s, status, undefined, undefined, NOW)).toBe('active')
+      expect(shelfOf(s, status, { isParked: true, parkedAt: NOW - MIN }, undefined, NOW)).toBe('parked')
+      expect(shelfOf(s, status, { isSettled: true, settledAt: NOW - MIN }, undefined, NOW)).toBe('settled')
+      expect(shelfOf(s, status, { snoozedUntil: NOW + HOUR }, undefined, NOW)).toBe('snoozed')
+      expect(wakeOf({ snoozedUntil: NOW + HOUR }, status, NOW)).toBeNull()
+      expect(returnedOf(NOW - MIN, status, undefined)).toBe(false)
+    }
+    for (const status of ['failed', 'background', 'check'] as const) expect(shelfOf(s, status, { isPinned: true }, undefined, NOW)).toBe('pinned')
   })
   test('AC-G8: on Active, needs-you sorts first, then Failed, then the rest by the sort mode', () => {
     const cardOf = (id: string, status: Status, statusSince: number, activityAt: number) => ({ s: S({ id, statusSince, activityAt }), status })

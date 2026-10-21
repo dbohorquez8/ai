@@ -10,11 +10,18 @@ export type ListedRow = { name?: string; ref?: string; id?: string; type?: strin
 export type ListedSection = { kind: string; total: number; rows: ListedRow[] }
 export type Listing = { listing?: string; sections?: ListedSection[] }
 
-/** The rows of a ListAgents result, one per listed agent that has an address. */
+/**
+ * ListAgents sections that list this session's own agent loops (`subagents`, `teammates`): they are child
+ * rows under the own card, never sessions, so a finished subagent never becomes a card of its own.
+ */
+export const CHILD_SECTION_KINDS: ReadonlySet<string> = new Set(['subagents', 'teammates'])
+
+/** The rows of a ListAgents result, one per listed session that has an address; agent sections are left out. */
 export const rowsOf = (listing: Listing | undefined): Row[] => {
   const rows: Row[] = []
   const seen = new Set<string>()
   for (const section of listing?.sections ?? []) {
+    if (CHILD_SECTION_KINDS.has(section.kind)) continue
     for (const one of section.rows ?? []) {
       const id = one.id ?? one.ref ?? one.name
       if (!id || seen.has(id)) continue

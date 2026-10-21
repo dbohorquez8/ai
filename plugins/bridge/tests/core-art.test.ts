@@ -1,11 +1,11 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
 
-import { bellOf, framesAt, isAnimating, sceneFrameAt, spinnerFrameAt } from '../hooks/core/animation'
+import { TICK_MS, bellOf, framesAt, isAnimating, sceneFrameAt, spinnerFrameAt } from '../hooks/core/animation'
 import { contrastRatio, ensureContrast, PALETTES, projectColorsOf, themeModeOf } from '../hooks/core/palette'
 import { GENERATED } from '../hooks/core/palette.generated'
 import { base64Of, DEFAULT_COLOR, hexToColor, packCells } from '../hooks/core/raster'
 import { POSE_FRAMES, sceneCells, SPINNER_FRAMES, spinnerCells } from '../hooks/core/sprites'
-import { STATUS_HUE, TAG_HUE } from '../hooks/core/types' // amend 2026-10-18: AC-93 -- (contextHueOf removed)
+import { STATUS_HUE, snapToRasterGrid } from '../hooks/core/types' // amend 2026-10-18: AC-93 -- (contextHueOf removed)
 import type { CardView, Hue, PaneView, Pose, Status, ThemeMode } from '../hooks/core/types'
 
 tier('builtin')
@@ -73,7 +73,6 @@ describe('contrast (AC-39)', () => {
       const surfaces = [p.bg, p.fill]
       for (const hue of HUES) check(mode, `text ${hue}`, p.text[hue], surfaces)
       for (const hue of Object.values(STATUS_HUE)) check(mode, `status ${hue}`, p.text[hue], surfaces)
-      for (const hue of Object.values(TAG_HUE)) check(mode, `tag ${hue}`, p.text[hue], [...surfaces, p.waitingRow])
       // amend 2026-10-18: AC-93 -- the context tones are muted (gray) below 75, orange from 75, red at 100.
       for (const hue of ['gray', 'orange', 'red'] as const) check(mode, `context ${hue}`, p.text[hue], surfaces)
       check(mode, 'pill red', p.pill.red.fg, [p.pill.red.bg])
@@ -202,7 +201,7 @@ describe('sprites (AC-41 to AC-43)', () => {
 })
 
 describe('animation policy (AC-22, AC-111 to AC-113)', () => {
-  test('the bell changes only inside the first 450 ms of each 4 s window (AC-22)', () => {
+  test('the bell shakes rest, right, rest, right inside the first 800 ms of each 4 s window (AC-22)', () => {
     let previous = bellOf(0)
     const changes: number[] = []
     for (let ms = 1; ms <= 12_000; ms += 1) {
@@ -211,12 +210,14 @@ describe('animation policy (AC-22, AC-111 to AC-113)', () => {
       previous = now
     }
     expect(changes.length).toBeGreaterThan(0)
-    for (const ms of changes) expect(ms % 4000).toBeLessThanOrEqual(450)
-    expect(bellOf(0)).toBe(1)
-    expect(bellOf(200)).toBe(2)
-    expect(bellOf(350)).toBe(1)
-    expect(bellOf(450)).toBe(0)
+    for (const ms of changes) expect(ms % 4000).toBeLessThanOrEqual(800)
     expect(bellOf(3999)).toBe(0)
+  })
+
+  test('a ticker at any offset draws every bell step once, in order (AC-22)', () => {
+    for (let offset = 0; offset < TICK_MS; offset += 10) {
+      expect([0, 1, 2, 3].map(i => bellOf(offset + i * TICK_MS))).toEqual([0, 2, 0, 2])
+    }
   })
 
   const card = (id: string, status: Status, extra: Partial<CardView> = {}): CardView => ({
@@ -228,7 +229,7 @@ describe('animation policy (AC-22, AC-111 to AC-113)', () => {
   const spinnerLines: CardView['lines'] = [[{ kind: 'spinner' }, { kind: 'text', text: ' Working' }]]
   const view = (cards: CardView[], extra: Partial<PaneView> = {}): PaneView => ({
     needYou: 0, shelves: [{ id: 'active', header: 'Active', isCollapsed: false, cards, hasSort: false }],
-    width: 44, sort: 'recent', settings: { icons: true, theme: 'auto', workingShelf: false }, selectedFill: PALETTES.dark.fill, palette: PALETTES.dark, ...extra, // amend 2026-10-18: AC-08a
+    width: 44, contentWidth: 42, sort: 'recent', settings: { icons: true, theme: 'auto', workingShelf: false }, selectedFill: PALETTES.dark.fill, palette: PALETTES.dark, ...extra, // amend 2026-10-18: AC-08a
   })
 
   test('nothing animates while the pane is hidden', () => {
@@ -269,6 +270,18 @@ describe('animation policy (AC-22, AC-111 to AC-113)', () => {
     const [spin, more] = framesAt(view([card('a', 'working', { lines: spinnerLines })]), 3, 'dark')
     expect([spin!.key, spin!.columns, spin!.rows]).toEqual(['spin:a', 1, 1])
     expect(more).toBeUndefined()
+  })
+  test('a selected-card spinner raster uses the same snapped fill as its full-width text rows', () => {
+    const selectedFill = snapToRasterGrid(PALETTES.dark.fill)
+    const [spin] = framesAt(view([card('a', 'working', { lines: spinnerLines, isSelected: true })], { selectedFill }), 0, 'dark')
+    expect(decode(spin!.cells)[0]![2]).toBe(hexToColor(selectedFill))
+  })
+  test('a child-row spinner under a selected card keeps the pane background', () => {
+    const selectedFill = snapToRasterGrid(PALETTES.dark.fill)
+    const children = { rows: [{ id: 'k', text: spinnerLines[0]! }] }
+    const blits = framesAt(view([card('a', 'working', { lines: spinnerLines, isSelected: true, children })], { selectedFill }), 0, 'dark')
+    const child = blits.find(b => b.key === 'spin:k')!
+    expect(decode(child.cells)[0]![2]).toBe(0x01000000)
   })
   test('frame helpers follow the shared formulas', () => {
     expect([0, 9, 10, 13].map(spinnerFrameAt)).toEqual([0, 9, 0, 3])

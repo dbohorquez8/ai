@@ -72,8 +72,16 @@ export const ICON_LOOKUP_MS = 10 * 60_000
 /** The size the cached PNG is scaled to, in pixels on its long side. */
 export const ICON_PIXELS = 64
 
+/** A source picture larger than this is skipped, and the next candidate file is tried. */
+export const ICON_MAX_BYTES = 1_048_576
+/** A PNG or ICO wider or taller than this is not converted; an SVG has no pixel size, so only the byte limit applies. */
+export const ICON_MAX_SIDE = 1024
+
+/** Whether a candidate file is small enough to read as a project icon. */
+export const isIconSizeUsable = (bytes: number): boolean => bytes > 0 && bytes <= ICON_MAX_BYTES
+
 /** Bumped when the conversion changes, so older cached pictures are not reused. */
-const ICON_CACHE_VERSION = 2
+const ICON_CACHE_VERSION = 3
 
 /** A stable cache file name for a source picture at one modification time (FNV-1a). */
 export const iconCacheNameOf = (source: string, mtimeMs: number): string => {
@@ -93,6 +101,8 @@ export const projectRootOf = (cwd: string, commonDir: string | undefined): strin
 
 const CONVERT_SCRIPT = [
   'mkdir -p "$1" || exit 1',
+  // A raster wider or taller than ICON_MAX_SIDE is refused before any conversion.
+  `case "$2" in *.svg|*.SVG) ;; *) sips -g pixelWidth -g pixelHeight "$2" 2>/dev/null | awk '/pixel(Width|Height)/ { if ($2 > ${ICON_MAX_SIDE}) bad = 1 } END { exit bad }' || exit 1 ;; esac`,
   `sips -s format png -Z ${ICON_PIXELS} "$2" --out "$3" >/dev/null 2>&1`,
   // sips reads SVG on current macOS; rsvg-convert covers older systems. Quick Look is not used: its thumbnail pads a white page.
   'case "$2" in *.svg|*.SVG) test -s "$3" || rsvg-convert -w ' + ICON_PIXELS + ' -h ' + ICON_PIXELS + ' -a "$2" -o "$3" >/dev/null 2>&1 ;; esac',

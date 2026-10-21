@@ -3,7 +3,8 @@
 
 import type { RenderElement } from 'claude-code'
 
-import type { PaneView, ShelfView, SortMode } from '../core/types'
+import type { CardView, PaneView, ShelfView, SortMode } from '../core/types'
+import { ROW_HORIZONTAL_PADDING } from '../core/layout'
 import { sceneOf } from './art'
 import { cardOf } from './card'
 import type { Els, Handlers } from './pane'
@@ -14,6 +15,10 @@ const SORT_OPTIONS = [
   { value: 'project', label: 'Project' },
 ] as const
 
+/** True when the card's `▀` edge row is the last row of the card, so it already stands for the gap before the next card. */
+const endsInEdge = (card: CardView | undefined) =>
+  card !== undefined && card.form === 'full' && card.isSelected && !card.children?.rows.length && !card.background?.rows.length
+
 export const shelfOf = (els: Els, view: PaneView, shelf: ShelfView, at: number, frame: { tick: number }, on: Handlers, viewedAgent: string | undefined): RenderElement => {
   const { Box, Text, Button } = els
   // The Active header carries the sort control: `↕` before the chevron opens the sort menu; the rest toggles the shelf.
@@ -21,7 +26,7 @@ export const shelfOf = (els: Els, view: PaneView, shelf: ShelfView, at: number, 
   return (
     <Box key={`section:${shelf.id}`} flexDirection="column" {...(at > 0 ? { marginTop: 1 } : {})}>
       {shelf.hasHeader && (
-        <Box key={`header:${shelf.id}`} flexDirection="row">
+        <Box key={`header:${shelf.id}`} flexDirection="row" width={view.width} paddingLeft={ROW_HORIZONTAL_PADDING} paddingRight={ROW_HORIZONTAL_PADDING}>
           <Button key={`shelf:${shelf.id}`} plain dimColor onPress={() => on.toggleShelf(shelf.id)}>
             <Text dimColor>{head}</Text>
           </Button>
@@ -38,7 +43,7 @@ export const shelfOf = (els: Els, view: PaneView, shelf: ShelfView, at: number, 
         </Box>
       )}
       {shelf.sortMenu && (
-        <Box key="sort-menu" flexDirection="column" paddingLeft={2}>
+        <Box key="sort-menu" flexDirection="column" width={view.width} paddingLeft={ROW_HORIZONTAL_PADDING + 2} paddingRight={ROW_HORIZONTAL_PADDING}>
           {SORT_OPTIONS.map(option => (
             <Button key={`sort:${option.value}`} plain onPress={() => on.sort(option.value as SortMode)}>
               <Text {...(option.value === view.sort ? {} : { dimColor: true })}>{`${option.value === view.sort ? '✓' : ' '} ${option.label}`}</Text>
@@ -46,7 +51,7 @@ export const shelfOf = (els: Els, view: PaneView, shelf: ShelfView, at: number, 
           ))}
         </Box>
       )}
-      {shelf.cards.map((card, index) => cardOf(els, view, card, index, frame, on, viewedAgent))}
+      {shelf.cards.map((card, index) => cardOf(els, view, card, index, frame, on, viewedAgent, endsInEdge(shelf.cards[index - 1])))}
       {shelf.id === 'active' && !shelf.isCollapsed && shelf.cards.length === 0 && sceneOf(els, view, frame.tick)}
     </Box>
   )

@@ -34,7 +34,7 @@ export const isWoke = (entry: Entry | undefined, status: Status, now: number): b
  * The shelf a card is on now. A pin wins, then a raised hand (Needs you, Failed), then live work;
  * then snooze, park and settle until the session returns; then Inactive for an
  * idle session untouched for 6 hours. A card that woke from a snooze goes to
- * Active so the mark is seen, even when its session is old. Check? is no raised hand: a card put away
+ * Active so the mark is seen, even when its session is old. Background and Check? are no raised hand: a card put away
  * stays put away, else it is Active. Live work goes to
  * the Working shelf only while that setting is on (AC-08a); otherwise it stays in Active.
  */

@@ -83,8 +83,8 @@ export const isPutAway = (entry: Entry | undefined, now: number): boolean =>
  * every session reads alike (the registry's status time, the transcript's question time, the own failure
  * time), never a time one pane observed, so all sessions name the same change the same way.
  */
-export const chimeClaimOf = (status: Status, s: { sharedSince?: number; askedAt?: number; failedAt?: number }): string =>
-  `${status}@${Math.max(s.sharedSince ?? 0, s.askedAt ?? 0, s.failedAt ?? 0)}`
+export const chimeClaimOf = (status: Status, s: { sharedSince?: number; askedAt?: number; failedAt?: number; childNeedAt?: number }): string =>
+  `${status}@${Math.max(s.sharedSince ?? 0, s.askedAt ?? 0, s.failedAt ?? 0, s.childNeedAt ?? 0)}`
 
 /** The `chime:` keys whose session is no longer live. */
 export const prunedChimeKeys = (keys: readonly string[], liveIds: ReadonlySet<string>): string[] =>

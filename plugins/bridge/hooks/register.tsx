@@ -10,22 +10,24 @@ import { elsewhereMessageOf, focusMessageOf, forgetKnown, HOST_VARS, isSamePlace
 import type { CapsEnv, Place as TermPlace, Ran } from './adapters/shared'
 import { forgetCmuxCli } from './adapters/cmux'
 import { capabilitiesOf, focusSession, resolveOwnPlace } from './adapters/index'
-import { backgroundOf } from './core/background'
+import { backgroundOf, endedTaskIdOf, launchedTaskOf, reconciledBackgroundOf, withoutTask, withTask } from './core/background'
+import { childrenOf } from './core/children'
 import { CHIME_PREFIX, chimeClaimOf, chimeWav, prunedChimeKeys, shouldChimeOf } from './core/chime'
 import type { TaskSummary } from './core/background'
 import { bellOf, framesAt, isAnimating, sceneFrameAt, spinnerFrameAt, TICK_MS } from './core/animation'
 import { nextCaption } from './core/captions'
-import { ICON_LOOKUP_MS, iconCacheNameOf, iconConvertArgv, PROJECT_ICON_CANDIDATES, projectRootOf } from './core/icons'
+import { ICON_LOOKUP_MS, iconCacheNameOf, iconConvertArgv, isIconSizeUsable, PROJECT_ICON_CANDIDATES, projectRootOf } from './core/icons'
 import { applyAction, isWoke, offeredActions, reconcile } from './core/lifecycle'
 import type { Action } from './core/lifecycle'
 import { moved } from './core/order'
 import { PALETTES, projectColorsOf, themeModeOf } from './core/palette'
-import { KEYS, loadStored, PREF_PREFIX, prunedKeys, SIDEBAR_ARGS_HINT, sidebarSettingOf, WINDOW_PREFIX, windowsOf } from './core/persist'
+import { DEFAULT_CHECK_AFTER_MINUTES, KEYS, loadStored, PREF_PREFIX, prunedKeys, SIDEBAR_ARGS_HINT, sidebarSettingOf, WINDOW_PREFIX, windowsOf } from './core/persist'
+import { glyphModeOf } from './adapters/glyphs'
 import { AGENTS_ARGV, AGENTS_MS, agentsJsonOf, modelIdOf, modelOf, PR_FIRST_MS, PR_MS, sessionsOf } from './core/sources'
 import type { Listed } from './core/sources'
 import { finishedAtOf, ownOf, statusOf } from './core/status'
 import { DEFAULT_COLLAPSED } from './core/types'
-import type { BackgroundTask, Caps, Child, ChildTag, PaneView, Session, Settings, Status, Stored, ThemeMode } from './core/types'
+import type { BackgroundTask, Caps, Child, PaneView, Session, Settings, Status, Stored, ThemeMode } from './core/types'
 import { paneViewOf } from './core/view'
 import { drawPane } from './render/pane'
 import type { Handlers } from './render/pane'
@@ -71,6 +73,11 @@ const own = atom({ plugin: 'bridge', key: 'own' } as const, null as TermPlace | 
 const selfContext = atom({ plugin: 'bridge', key: 'selfContext' } as const, null as number | null)
 const selfBackground = atom({ plugin: 'bridge', key: 'selfBackground' } as const, null as BackgroundTask[] | null)
 const selfFailedAt = atom({ plugin: 'bridge', key: 'selfFailedAt' } as const, null as number | null)
+const selfWindow = atom({ plugin: 'bridge', key: 'selfWindow' } as const, null as number | null)
+const selfTurnOver = atom({ plugin: 'bridge', key: 'selfTurnOver' } as const, null as boolean | null)
+const selfTurnAt = atom({ plugin: 'bridge', key: 'selfTurnAt' } as const, null as number | null)
+/** Pending person-facing child tool calls, keyed by the engine's tool-use id. */
+const childInteractions = atom({ plugin: 'bridge', key: 'childInteractions' } as const, {} as Record<string, { agentId: string; at: number }>)
 const now = atom({ plugin: 'bridge', key: 'now' } as const, 0)
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
@@ -213,14 +220,14 @@ const readPlaces = async ($: EngineInterface, entries: readonly RegistryEntry[])
 }
 
 /**
- * A project folder's icon (AC-42): the first candidate file that exists, as a 64 px PNG in the cache. A PNG
+ * A project folder's icon (AC-42): the first candidate file that exists and is at most 1 MB, as a 64 px PNG in the cache. A PNG
  * already cached for the same file and modification time is used as is; otherwise one process converts it.
  */
 const lookupIcon = async ($: EngineInterface, dir: string, root: string, at: number): Promise<IconLookup> => {
   for (const name of PROJECT_ICON_CANDIDATES) {
     const source = `${root}/${name}`
     const stat = await $.fs.stat(source).catch(() => undefined)
-    if (stat?.kind !== 'file') continue
+    if (stat?.kind !== 'file' || !isIconSizeUsable(stat.size)) continue
     const target = `${dir}/${iconCacheNameOf(source, stat.mtimeMs)}`
     if (await $.fs.exists(target).catch(() => false)) return { at, file: target }
     const ran = await runner($)(iconConvertArgv(dir, source, target))
@@ -269,31 +276,104 @@ const markAway = async ($: EngineInterface, listedRows: readonly Row[], entries:
   await update($, away, old => keep(old, tags))
 }
 
-const TAG_OF: Readonly<Record<string, ChildTag>> = { running: 'RUNNING', pending: 'RUNNING', waiting: 'WAITING', completed: 'DONE', idle: 'DONE', failed: 'FAILED', killed: 'STOPPED' }
-const numberOf = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined)
-
-/** This session's subagents as children, each with the time it has shown its tag (AC-31b, AC-92). */
+/** This session's subagents as children, each with the time it has shown its tag; finished ones stay listed (AC-31b, AC-92). */
 const readChildren = async ($: EngineInterface, at: number) => {
   let agents: Array<Record<string, unknown>> = []
   try {
     agents = (await $.agent.list()) as unknown as Array<Record<string, unknown>>
   } catch {}
-  const old = await read($, childSince)
-  const seen: Record<string, { tag: string; since: number; startedAt: number }> = {}
-  const list: Child[] = agents.map(agent => {
-    const id = String(agent.id)
-    const tag = TAG_OF[String(agent.status)] ?? 'DONE'
-    const prev = old[id]
-    const own = numberOf(agent.statusSince)
-    const started = numberOf(agent.startedAt)
-    const since = own ?? (prev && prev.tag === tag ? prev.since : (prev ? at : (started ?? at)))
-    const startedAt = started ?? prev?.startedAt ?? at
-    seen[id] = { tag, since, startedAt }
-    const label = [agent.description, agent.name, agent.type].find(one => typeof one === 'string' && one.trim() !== '') as string | undefined
-    return { id, label: label ?? id, tag, since, startedAt }
-  })
+  const interactions = await read($, childInteractions)
+  const needsYou = Object.values(interactions).reduce<Record<string, number>>((out, one) => {
+    out[one.agentId] = Math.max(out[one.agentId] ?? 0, one.at)
+    return out
+  }, {})
+  const { list, seen } = childrenOf(agents, await read($, children), await read($, childSince), at, needsYou)
   await update($, childSince, old => keep(old, seen))
   await update($, children, old => keep(old, list))
+}
+
+/** Marks a child permission/question while its engine tool call waits for the person. */
+const noteChildInteraction = async ($: EngineInterface, key: string, agentId: string, active: boolean) => {
+  const at = await $.clock.now()
+  await update($, childInteractions, old => {
+    if (active) return { ...old, [key]: { agentId, at } }
+    if (!(key in old)) return old
+    const next = { ...old }
+    delete next[key]
+    return next
+  })
+  await readChildren($, at)
+}
+
+const childNeedAtOf = (interactions: Readonly<Record<string, { agentId: string; at: number }>>) =>
+  Math.max(0, ...Object.values(interactions).map(one => one.at)) || undefined
+
+/** A task a main-loop tool call started, added to the own background list. */
+const noteLaunched = async ($: EngineInterface, task: TaskSummary) => {
+  const at = await $.clock.now()
+  await update($, selfBackground, old => withTask(old, task, at))
+}
+
+/** A task that ended (its notification, or a TaskStop), taken off the own background list. */
+const noteEnded = async ($: EngineInterface, id: string) => {
+  await update($, selfBackground, old => {
+    const next = withoutTask(old, id)
+    return next === null ? old : keep(old, next)
+  })
+}
+
+/** A background task a main-loop Bash, Monitor or Workflow call started (the tool's arguments sit on `e`); a subagent's own calls are its business. */
+const noteToolCall = async ($: EngineInterface, tool: string, e: { readonly agentId?: string }, called: unknown) => {
+  const result = called && typeof called === 'object' && 'result' in called ? (called as { result?: unknown }).result : undefined
+  const task = e.agentId === undefined ? launchedTaskOf(tool, e, result) : undefined
+  if (task) await noteLaunched($, task)
+}
+
+/** A main-loop turn's end: `error` (an API error ended it) marks the own card Failed, `answer` clears it. */
+const noteTurnEnd = async ($: EngineInterface, reason: string) => {
+  if (reason === 'error') {
+    const at = await $.clock.now()
+    await update($, selfFailedAt, () => at)
+  } else if (reason === 'answer') {
+    await update($, selfFailedAt, old => (old === null ? old : null))
+  }
+}
+
+/** Every turn end restarts the Check? silence clock, so a second end with no turn start between them is not read as old silence. */
+const noteTurnOver = async ($: EngineInterface, isOver: boolean) => {
+  if (!isOver && (await read($, selfTurnOver)) === false) return
+  const at = await $.clock.now()
+  await update($, selfTurnOver, () => isOver)
+  await update($, selfTurnAt, () => at)
+  const id = await read($, selfId)
+  const raw = (await read($, registry)).find(entry => entry.sessionId === id)?.status
+    ?? (await read($, rows)).find(row => row.sessionId === id)?.status
+  if (id && raw) await update($, since, old => ({ ...old, [id]: { status: raw, at } }))
+}
+
+/**
+ * A `/clear` or a resume ends the conversation without a new `session.start`: what belonged to the old one
+ * (its background tasks, which a clear kills without a notification, its turn, Failed, subagents and status
+ * times) is dropped, and the session id is read again.
+ */
+const resetConversation = async ($: EngineInterface) => {
+  await update($, selfBackground, () => null)
+  await update($, selfTurnOver, () => null)
+  await update($, selfTurnAt, () => null)
+  await update($, selfFailedAt, () => null)
+  await update($, selfContext, () => null)
+  await update($, selfWindow, () => null)
+  await update($, children, () => [])
+  await update($, childSince, () => ({}))
+  await update($, since, () => ({}))
+  await readSelfId($)
+}
+
+const readSelfId = async ($: EngineInterface) => {
+  try {
+    const id = await $.session.id()
+    if (id) await update($, selfId, old => (old === id ? old : id))
+  } catch {}
 }
 
 /** The own session's in-flight background work, as the engine hands it to a stop hook; subagents are the child rows. */
@@ -310,6 +390,7 @@ const readSelfContext = async ($: EngineInterface) => {
   try {
     const { percent, window } = (await $.session.usage()).context
     await update($, selfContext, old => keep(old, typeof percent === 'number' ? percent : null))
+    await update($, selfWindow, old => keep(old, typeof window === 'number' && window > 0 ? window : null))
     const model = (await read($, contexts))[await read($, selfId)]?.model
     if (model && typeof window === 'number' && window > 0 && (await read($, windows))[model] !== window) {
       // Kept in the shared store, so a pane on this model shows other sessions' percentages before its own first reply.
@@ -318,6 +399,7 @@ const readSelfContext = async ($: EngineInterface) => {
     }
   } catch {
     await update($, selfContext, old => keep(old, null))
+    await update($, selfWindow, old => keep(old, null))
   }
 }
 
@@ -353,10 +435,14 @@ const sessionsFrom = async ($: EngineInterface): Promise<Session[]> => {
   const context = await read($, selfContext)
   const background = await read($, selfBackground)
   const failedAt = await read($, selfFailedAt)
+  const turnOver = await read($, selfTurnOver)
+  const turnAt = await read($, selfTurnAt)
+  const childNeedAt = childNeedAtOf(await read($, childInteractions))
+  const window = await read($, selfWindow)
   return sessionsOf({
     rows: await read($, rows), registry: await read($, registry), listed: await read($, listed), listedSeen: await read($, listedSeen),
     titles: await read($, titles), models: await read($, models), asks: await read($, asks), contexts: await read($, contexts), windows: await read($, windows), places: await read($, places), prs: await read($, prs),
-    selfId: await read($, selfId), away: await read($, away), ...(context === null ? {} : { selfContext: context }), ...(background === null ? {} : { selfBackground: background }), ...(failedAt === null ? {} : { selfFailedAt: failedAt }),
+    selfId: await read($, selfId), away: await read($, away), since: await read($, since), ...(context === null ? {} : { selfContext: context }), ...(background === null ? {} : { selfBackground: background }), ...(failedAt === null ? {} : { selfFailedAt: failedAt }), ...(turnOver === null ? {} : { selfTurnOver: turnOver }), ...(window === null ? {} : { selfWindow: window }), ...(turnAt === null ? {} : { selfTurnAt: turnAt }), ...(childNeedAt === undefined ? {} : { selfChildNeedAt: childNeedAt }),
   })
 }
 
@@ -369,6 +455,8 @@ export const refresh = ($: EngineInterface) =>
 const refreshOnce = async ($: EngineInterface) => {
   let note = ''
   const at = await $.clock.now()
+  // The id moves on after a `/clear` or a resume, which no `session.start` announces.
+  await readSelfId($)
   try {
     const called = await $.tool.call({ tool: 'ListAgents' } as never)
     if ('deny' in called && called.deny) {
@@ -403,7 +491,12 @@ const refreshOnce = async ($: EngineInterface) => {
   await readChildren($, at)
   await readSelfContext($)
   // The clock moves only when it changes what is drawn (ages turn over by the minute), so a quiet refresh redraws nothing (AC-110).
-  if (!last || !same(paneViewOf({ ...last.input, now: at }), last.view)) await update($, now, old => keep(old, at))
+  // A turn can restart an own card's status clock without changing its raw word. Its cached view still has the
+  // old start, so comparing that view alone would leave Check? drawn until the next minute boundary.
+  const turnAt = await read($, selfTurnAt)
+  const ownStatusSince = last?.sessions.find(session => session.isSelf)?.statusSince ?? 0
+  const turnRestarted = turnAt !== null && turnAt > ownStatusSince
+  if (turnRestarted || !last || !same(paneViewOf({ ...last.input, now: at }), last.view)) await update($, now, old => keep(old, at))
   await reconcileStore($, at)
 }
 
@@ -412,7 +505,15 @@ const reconcileStore = async ($: EngineInterface, at: number) => {
   // Taken before the sessions are read: a cross-check landing after that read is not in them yet.
   const isPrimed = hasReadAgents
   const kept = await loadStore($)
-  const sessions = await sessionsFrom($)
+  const first = await sessionsFrom($)
+  // A task whose end went unseen leaves no row once the registry says idle with no turn running. The registry's
+  // own word is read, not the merged one: the listing can win the merge with `idle` while shells still run.
+  const mine = first.find(s => s.isSelf)
+  const tracked = await read($, selfBackground)
+  const reconciled = mine?.sharedRaw !== undefined ? reconciledBackgroundOf(tracked, { raw: mine.sharedRaw, ...(mine.isTurnOver === undefined ? {} : { isTurnOver: mine.isTurnOver }), ...(mine.sharedSince === undefined ? {} : { idleSince: mine.sharedSince }) }) : tracked
+  const isReconciled = !same(tracked, reconciled)
+  if (isReconciled) await update($, selfBackground, () => reconciled)
+  const sessions = isReconciled ? await sessionsFrom($) : first
   const oldSince = await read($, since)
   const oldFinished = await read($, finished)
   const nextSince: Record<string, Since> = {}
@@ -423,7 +524,7 @@ const reconcileStore = async ($: EngineInterface, at: number) => {
     const done = finishedAtOf(prev ? { raw: prev.status, since: prev.at } : undefined, { raw: s.raw, since: s.statusSince }, oldFinished[s.prefId])
     nextSince[s.prefId] = { status: s.raw, at: s.statusSince }
     if (done !== undefined) nextFinished[s.prefId] = done
-    statuses[s.prefId] = statusOf(s.raw, s.statusSince, done, kept.entries[s.prefId]?.ackAt, s.askedAt, ownOf(s))
+    statuses[s.prefId] = statusOf(s.raw, s.statusSince, done, kept.entries[s.prefId]?.ackAt, s.askedAt, ownOf(s), at, kept.settings.checkAfter ?? DEFAULT_CHECK_AFTER_MINUTES)
   }
   await update($, since, old => keep(old, nextSince))
   await update($, finished, old => keep(old, nextFinished))
@@ -586,14 +687,19 @@ const rowOf = (s: Session): Row => ({ id: s.id, name: s.name, kind: 'sessions', 
  * card focuses its tab in this pane's own terminal app only (L9). A live session elsewhere gets a note
  * and nothing is copied; a failed or dead focus copies the resume line. Never a toast.
  */
-const pressSession = async ($: EngineInterface, s: Session) => {
+const acknowledgeSession = async ($: EngineInterface, s: Session) => {
   const at = await $.clock.now()
-  const entry = (await read($, stored)).entries[s.prefId]
-  const status = statusOf(s.raw, s.statusSince, (await read($, finished))[s.prefId], entry?.ackAt, s.askedAt, ownOf(s))
+  const kept = await read($, stored)
+  const entry = kept.entries[s.prefId]
+  const status = statusOf(s.raw, s.statusSince, (await read($, finished))[s.prefId], entry?.ackAt, s.askedAt, ownOf(s), at, kept.settings.checkAfter ?? DEFAULT_CHECK_AFTER_MINUTES)
   if (status === 'done' || status === 'failed' || isWoke(entry, status, at)) {
     await writeEntry($, s.prefId, 'ack')
     await loadStore($)
   }
+}
+
+const pressSession = async ($: EngineInterface, s: Session) => {
+  await acknowledgeSession($, s)
   if (s.isSelf) {
     try {
       await $.ui.view({})
@@ -620,7 +726,13 @@ const pressSession = async ($: EngineInterface, s: Session) => {
 const handlersOf = ($: EngineInterface): Handlers => ({
   pressCard: id => {
     const s = last?.sessions.find(one => one.id === id)
-    if (s) void pressSession($, s)
+    // `ui.view` is authorized only during this press. `pressSession` first
+    // awaits the clock, so its old own-card call arrived after authorization.
+    if (s?.isSelf) {
+      void $.ui.view({}).then(() => undefined).catch(() => undefined)
+      void acknowledgeSession($, s)
+    }
+    else if (s) void pressSession($, s)
   },
   toggleShelf: shelf => void (async () => {
     const collapsed = { ...(await freshOf($, KEYS.shelves)).collapsed }
@@ -722,6 +834,10 @@ export const register: Register = on => {
     await update($, selfContext, () => null)
     await update($, selfBackground, () => null)
     await update($, selfFailedAt, () => null)
+    await update($, selfTurnOver, () => null)
+    await update($, selfTurnAt, () => null)
+    await update($, childInteractions, () => ({}))
+    await update($, selfWindow, () => null)
     await update($, now, () => 0)
     env = await readEnv($)
     iconDir = await readIconDir($).catch(() => undefined)
@@ -750,9 +866,79 @@ export const register: Register = on => {
     return started
   })
 
+  // The own background list and turn state, from events no other plugin can send past this one: a managed
+  // plugin may hand classic.Stop and classic.SubagentStop past every installed plugin (live defect D1).
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) await noteTurnOver($, false).catch(() => undefined)
+    return next(e)
+  })
+  on('turn.complete', async ($, e, next) => {
+    const done = await next(e)
+    if (e.agentId === undefined) {
+      await noteTurnOver($, true).catch(() => undefined)
+      // The own Failed, from an event no managed plugin sends past this one: an API error marks it, an answer clears it (AC-G1).
+      await noteTurnEnd($, e.reason).catch(() => undefined)
+    }
+    return done
+  })
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const called = await next(e)
+    await noteToolCall($, 'Bash', e, called).catch(() => undefined)
+    return called
+  })
+  on('tool.call', { tool: 'Monitor' }, async ($, e, next) => {
+    const called = await next(e)
+    await noteToolCall($, 'Monitor', e, called).catch(() => undefined)
+    return called
+  })
+  on('tool.call', { tool: 'Workflow' }, async ($, e, next) => {
+    const called = await next(e)
+    await noteToolCall($, 'Workflow', e, called).catch(() => undefined)
+    return called
+  })
+  on('tool.call', { tool: 'TaskStop' }, async ($, e, next) => {
+    const called = await next(e)
+    // The task the call named (`task_id`, or the older `shell_id`), once the call did not fail.
+    const input = e as { task_id?: unknown; shell_id?: unknown }
+    const id = [input.task_id, input.shell_id].find(one => typeof one === 'string' && one !== '') as string | undefined
+    const isFailed = !('result' in called) || (called as { isError?: boolean }).isError === true
+    if (id && !isFailed) await noteEnded($, id).catch(() => undefined)
+    return called
+  })
+  // `waiting` is not a prompt signal. The engine marks a real permission/plan
+  // interaction as `ask` and supplies the child id and tool-use id here.
+  on('tool.check', async ($, e, next) => {
+    const checked = await next(e)
+    if (e.agentId !== undefined && checked.decision === 'ask' && e.tool_use_id) await noteChildInteraction($, e.tool_use_id, e.agentId, true).catch(() => undefined)
+    return checked
+  })
+  on('tool.call', async ($, e, next) => {
+    const key = e.tool_use_id
+    // AskUserQuestion is person-facing by contract even where no permission check precedes it.
+    if (e.agentId !== undefined && e.tool === 'AskUserQuestion' && key) await noteChildInteraction($, key, e.agentId, true).catch(() => undefined)
+    try {
+      return await next(e)
+    } finally {
+      if (key && (await read($, childInteractions))[key] !== undefined) await noteChildInteraction($, key, '', false).catch(() => undefined)
+    }
+  })
+  on('session.end', async ($, e, next) => {
+    const ended = await next(e)
+    if (e.reason === 'clear' || e.reason === 'resume') await resetConversation($).catch(() => undefined)
+    return ended
+  })
+  on('prompt.submit', async ($, e, next) => {
+    const id = e.origin?.kind === 'task-notification' ? endedTaskIdOf(e.text) : undefined
+    if (id) await noteEnded($, id).catch(() => undefined)
+    // The person's own next prompt clears Failed: an interrupted turn ends with no answer (AC-G1).
+    if (e.origin?.kind === 'composer' && !e.command) await update($, selfFailedAt, old => (old === null ? old : null)).catch(() => undefined)
+    return next(e)
+  })
+
   // A turn that ends well clears an earlier API failure; one that ends on an API error marks the card Failed (AC-G1).
   on('classic.Stop', async ($, e, next) => {
     await noteBackground($, e.background_tasks).catch(() => undefined)
+    await noteTurnOver($, true).catch(() => undefined)
     await update($, selfFailedAt, old => (old === null ? old : null)).catch(() => undefined)
     return next(e)
   })
@@ -807,6 +993,7 @@ export const register: Register = on => {
     const isSortOpen = await read($, sortOpen)
     const inputOf = (pick: number | undefined): ViewInput => ({
       sessions, stored: kept, finished: finishedNow, children: childList, now: at, width, caps: shownCaps, bell: step,
+      glyphMode: glyphModeOf(kept.settings.glyphs, env.TERM_PROGRAM),
       ...(open ? { snoozeOpen: open } : {}), ...(isSortOpen ? { sortOpen: true } : {}), ...(pick === undefined ? {} : { caption: pick }),
       palette, projectColors: projectColorsOf([...new Set(sessions.map(s => s.project))], shade), projectIcons: iconFiles,
     })
@@ -835,4 +1022,3 @@ export const register: Register = on => {
     return drawPane(els, view, { tick, mode: shade }, handlersOf($), { notice: await read($, notice), note, ...(e.props.view.agentId ? { viewedAgent: e.props.view.agentId } : {}) })
   })
 }
-

@@ -11,7 +11,7 @@ export type Section = { kind: "styled"; lines: TerminalLine[] } | { kind: "markd
 
 export const OPENING_BAR = "▎ ";
 export const ACTION_BAR = "┃ ";
-export const STATE_DOT = "● ";
+export const STATE_BAR = "▎ ";
 export const DASH = "╌";
 export const WRAP_INDENT = "    ";
 
@@ -55,11 +55,11 @@ export function layoutReply(text: string, columns: number): Section[] | null {
   const middleEnd = firstLabel === -1 ? blocks.length - (state ? 1 : 0) : firstLabel;
   if (middleEnd > middleStart) sections.push({ kind: "markdown", text: sourceOf(middleStart, middleEnd - 1) });
   if (state) {
-    // The closing state line: a colored dot, then the sentence. Done draws the dot in the default color.
+    // The closing state line: the opening's bar in the state's color, then the sentence. Done draws the bar in the default color.
     const color: TerminalColor | undefined = state.kind === "waiting" ? "success" : state.kind === "working" ? "warning" : undefined;
-    const dot: Run = color ? { text: STATE_DOT, color } : { text: STATE_DOT };
+    const bar: Run = color ? { text: STATE_BAR, color } : { text: STATE_BAR };
     const wrapped = wrapRuns(inlineRuns(restOf(blocks[blocks.length - 1]).trim()), contentWidth);
-    sections.push({ kind: "styled", lines: wrapped.map((line, n) => (n === 0 ? [dot, ...line] : [{ text: " ".repeat(BAR_WIDTH) }, ...line])) });
+    sections.push({ kind: "styled", lines: wrapped.map((line) => barred(bar, line)) });
     return sections;
   }
   if (firstLabel === -1) return sections;

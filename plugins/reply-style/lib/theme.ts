@@ -9,7 +9,7 @@ export const THEME_KEYS: Readonly<Record<TerminalColor, { color: ThemeKey; dimCo
   // Open Question 1, revised to B: the action bar is the error role at full strength (faint read as gray).
   errorBar: { color: "error" },
   muted: { color: "inactive" },
-  // The closing state dot: green for Waiting, yellow for Working (WS-119). No fallback needed:
+  // The closing state bar: green for Waiting, yellow for Working (WS-119). No fallback needed:
   // a custom theme's missing tokens fall through to its built-in base, which defines both.
   success: { color: "success" },
   warning: { color: "warning" },

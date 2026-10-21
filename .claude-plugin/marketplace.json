@@ -25,7 +25,7 @@
     {
       "name": "reply-style",
       "source": "./plugins/reply-style",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "description": "Shows the Read and Needs You reply markers as bars in the Claude Code terminal.",
       "keywords": [
         "reply",

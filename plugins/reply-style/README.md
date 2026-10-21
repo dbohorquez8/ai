@@ -105,7 +105,7 @@ Restart Claude Code to load it. To turn it off: `claude plugin disable reply-sty
 
 ## Where the format comes from
 
-The reply format comes from a personal Claude Code output style called `adhd-ish`, built for a reader who scans,
+The reply format comes from a personal Claude Code output style, built for a reader who scans,
 reads out of order, and wants the conclusion before the data. It grew in steps:
 
 - **[Caveman](https://github.com/JuliusBrussee/caveman)** by Julius Brussee. The starting point: cut the padding at

@@ -104,7 +104,7 @@ reads out of order, and wants the conclusion before the data. It grew in steps:
   the **Needs You** block. The closing state words go back to an earlier version of the style that used colored
   emoji (green, yellow, white) for the same three states.
 
-Thanks to their authors. This mod is the terminal half of that work; a BB IDE plugin draws the same markers in BB.
+Thanks to their authors.
 
 ## How it works
 

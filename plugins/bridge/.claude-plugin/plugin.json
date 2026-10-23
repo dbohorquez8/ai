@@ -4,6 +4,6 @@
   "description": "A docked sessions pane of this machine's Claude sessions on shelves, with project icons, live status, snooze, sort and tab focus",
   "types": "./types/index.d.ts",
   "author": {
-    "name": "David Bohórquez"
+    "name": "dbohorquez8"
   }
 }

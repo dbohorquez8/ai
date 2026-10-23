@@ -1,21 +1,22 @@
-# ai
+# dbohorquez8/ai
 
-David Bohórquez's Claude Code plugins: mods, skills and hooks.
-
-## Install
-
-```sh
-claude plugin marketplace add dbohorquez8/ai
-claude plugin install <plugin>@dbohorquez
-```
+Claude Code mods by dbohorquez8: a sessions pane and a reply format you can scan.
 
 ## Plugins
 
-| Plugin | What it does |
-| --- | --- |
-| [Bridge](plugins/bridge/README.md) | A pane beside your chat that lists every Claude session on this machine, shows which ones are working, done or need you, and chimes when one asks you something. Open it with `/bridge`. |
-| [Reply style](plugins/reply-style/README.md) | Draws replies that use the **Read** and **Needs You** markers as bars in the terminal: an accent bar on the opening, a red bar on the action block, a green, yellow or plain bar on the closing Waiting / Working / Done line. Every other reply shows as usual. |
+| Plugin | Gets you | Looks like | Install |
+| --- | --- | --- | --- |
+| [**Bridge**](plugins/bridge/README.md) | A pane beside your chat that shows which Claude Code session needs an answer, is working, or is done. | <img src="plugins/bridge/assets/card-needs-you.png" alt="A Bridge card for billing-api with a red Needs you pill, its title, branch and model" width="400"> | `claude plugin install bridge@dbohorquez` |
+| [**reply-style**](plugins/reply-style/README.md) | Replies whose answer, question and next step show as colored bars you find at a glance. | <img src="plugins/reply-style/assets/needs-you.png" alt="A reply with a blue Read bar on its opening sentence and a red Needs You block asking two lettered-option questions" width="289"> | `claude plugin install reply-style@dbohorquez` |
 
-## License
+## Add the marketplace
 
-MIT, see [LICENSE](LICENSE). Plugins that adapt code from other MIT projects list those notices in their own `THIRD_PARTY_NOTICES.md`.
+```sh
+claude plugin marketplace add dbohorquez8/ai
+```
+
+Then install a plugin with the command in its row above, and start a new Claude Code session.
+
+## Licence and credits
+
+MIT, see [LICENSE](LICENSE). A plugin that adapts code from other projects lists their notices in its own `THIRD_PARTY_NOTICES.md`. Not affiliated with or endorsed by Anthropic.

@@ -1,9 +1,9 @@
 {
   "name": "dbohorquez",
   "owner": {
-    "name": "David Bohórquez"
+    "name": "dbohorquez8"
   },
-  "description": "David Bohórquez's Claude Code plugins: mods, skills and hooks",
+  "description": "Claude Code mods by dbohorquez8: a sessions pane and a reply format you can scan",
   "plugins": [
     {
       "name": "bridge",
@@ -12,7 +12,6 @@
       "description": "Bridge: a docked sessions pane of this machine's Claude sessions on shelves, with project icons, live status, snooze, sort and tab focus",
       "keywords": [
         "bridge",
-        "sidebar",
         "sessions",
         "subagents",
         "ui",

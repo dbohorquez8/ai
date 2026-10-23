@@ -20,7 +20,7 @@ export const adapterOf = (host: Host): Adapter => ADAPTERS.find(one => one.host 
 export const CAPABILITY_VARS = ['COLORTERM', 'KITTY_WINDOW_ID', 'CLAUDE_CODE_FORCE_TERMINAL_IMAGES'] as const
 
 /**
- * trueColor: `COLORTERM` is `truecolor` or `24bit` (any host, or unknown). pictures (AC-101): Ghostty, cmux and
+ * trueColor: `COLORTERM` is `truecolor` or `24bit` (any host, or unknown). pictures: Ghostty, cmux and
  * kitty always; iTerm2 with `CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1`; never under tmux or in Terminal. kitty has no
  * adapter (it is not switched to), so it is known by `KITTY_WINDOW_ID` when no adapter claims the pane.
  */

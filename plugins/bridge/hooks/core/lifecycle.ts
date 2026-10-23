@@ -1,18 +1,18 @@
 // The shelf and inactivity rules, reshaped for session cards.
 // Portions adapted from MIT-licensed code; Copyright (c) 2026 Michael Yong, Copyright (c) 2026 Yusuf Akbulut; design reference Copyright (c) 2026 T3 Tools Inc. See THIRD_PARTY_NOTICES.md.
 
-import { PREF_PREFIX } from '../sidebar-policy'
+import { PREF_PREFIX } from '../pane-policy'
 import type { Entry, Session, ShelfId, Status } from './types'
 
 export const INACTIVE_AFTER_MS = 6 * 3_600_000
 export const SEEN_STAMP_MS = 86_400_000
 
-/** Whether a status asks for the Owner: Needs you, or Failed. */
+/** Whether a status asks for the person: Needs you, or Failed. */
 const isAsking = (status: Status) => status === 'needs-you' || status === 'failed'
 
 /**
  * Why a snoozed card is back, if it is: the session started working, asked
- * for the Owner or failed ('attention'), or the wake time passed ('timer').
+ * for the person or failed ('attention'), or the wake time passed ('timer').
  */
 export const wakeOf = (entry: Entry | undefined, status: Status, now: number): 'timer' | 'attention' | null => {
   if (entry?.snoozedUntil === undefined) return null
@@ -36,7 +36,7 @@ export const isWoke = (entry: Entry | undefined, status: Status, now: number): b
  * idle session untouched for 6 hours. A card that woke from a snooze goes to
  * Active so the mark is seen, even when its session is old. Background and Check? are no raised hand: a card put away
  * stays put away, else it is Active. Live work goes to
- * the Working shelf only while that setting is on (AC-08a); otherwise it stays in Active.
+ * the Working shelf only while that setting is on; otherwise it stays in Active.
  */
 export const shelfOf = (s: Session, status: Status, entry: Entry | undefined, finishedAt: number | undefined, now: number, workingShelf = false): ShelfId => {
   if (entry?.isPinned) return 'pinned'
@@ -122,9 +122,9 @@ export const applyAction = (entry: Entry | undefined, action: Action, now: numbe
 }
 
 /**
- * The hover actions a card offers (AC-56, AC-65, AC-72, AC-74): Pin always;
+ * The hover actions a card offers: Pin always;
  * Snooze, Park and Settle only for an idle or done session; Move up and down on
- * pinned cards only (the Owner removed Manual sort).
+ * pinned cards only (the person removed Manual sort).
  */
 export const offeredActions = (status: Status, shelf: ShelfId): ReadonlyArray<'pin' | 'snooze' | 'park' | 'settle' | 'move-up' | 'move-down'> => {
   const actions: Array<'pin' | 'snooze' | 'park' | 'settle' | 'move-up' | 'move-down'> = ['pin']

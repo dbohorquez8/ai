@@ -3,8 +3,8 @@
 // Pure: no `$`, no terminal facts. A value no source reports is left out, never estimated.
 
 import type { Place, Row, Title } from '../../types'
-import type { RegistryEntry } from '../sidebar-policy'
-import { prefIdOf } from '../sidebar-policy'
+import type { RegistryEntry } from '../pane-policy'
+import { prefIdOf } from '../pane-policy'
 import { cardTextOf } from '../card-policy'
 import { mergedStatusOf, steadySinceOf } from './status'
 import type { BackgroundTask, Session } from './types'
@@ -64,7 +64,7 @@ export const modelOf = (line: string): string | undefined => {
 
 /**
  * Another session's context percentage: its last-response tokens over the window Claude Code reported
- * for the same model (AC-94); undefined when no window is known for that model, never a guess.
+ * for the same model; undefined when no window is known for that model, never a guess.
  */
 export const percentOf = (context: { tokens: number; model: string } | undefined, windows: Readonly<Record<string, number>> | undefined): number | undefined => {
   const window = context ? windows?.[context.model] : undefined
@@ -90,7 +90,7 @@ export const sessionsOf = (input: {
   listedSeen: Readonly<Record<string, { raw: string; observedAt: number }>>
   titles: Readonly<Record<string, Title>>
   models: Readonly<Record<string, string>>
-  /** When each session's last turn ended on a question to the Owner (`askedAtOf`). */
+  /** When each session's last turn ended on a question to the person (`askedAtOf`). */
   asks?: Readonly<Record<string, number>>
   /** Each session's last-response context tokens and full model id, from its transcript. */
   contexts?: Readonly<Record<string, { tokens: number; model: string }>>

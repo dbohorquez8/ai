@@ -30,14 +30,14 @@ describe('adapter registry', () => {
     for (const adapter of ADAPTERS) expect(adapterOf(adapter.host)).toBe(adapter)
   })
 
-  test('a cmux environment that also says Ghostty is cmux, and only the cmux adapter detects it (AC-99)', () => {
+  test('a cmux environment that also says Ghostty is cmux, and only the cmux adapter detects it', () => {
     const env = { CMUX_WORKSPACE_ID: 'W', TERM_PROGRAM: 'ghostty' }
     const chain = chainOf(tableOf(TABLE_GHOSTTY), 500)
     expect(hostOf(env, chain)).toBe('cmux')
     expect(ADAPTERS.filter(one => one.detect(env, chain)).map(one => one.host)).toEqual(['cmux'])
   })
 
-  test('Ghostty alone is Ghostty, by its parent chain or by TERM_PROGRAM (AC-98)', () => {
+  test('Ghostty alone is Ghostty, by its parent chain or by TERM_PROGRAM', () => {
     const chain = chainOf(tableOf(TABLE_GHOSTTY), 500)
     expect(ADAPTERS.filter(one => one.detect({}, chain)).map(one => one.host)).toEqual(['Ghostty'])
     expect(ADAPTERS.filter(one => one.detect({ TERM_PROGRAM: 'ghostty' }, [])).map(one => one.host)).toEqual(['Ghostty'])
@@ -53,7 +53,7 @@ describe('adapter registry', () => {
 
 describe('capabilities', () => {
   test('the capability variables are COLORTERM, KITTY_WINDOW_ID and CLAUDE_CODE_FORCE_TERMINAL_IMAGES', () => {
-    expect([...CAPABILITY_VARS]).toEqual(['COLORTERM', 'KITTY_WINDOW_ID', 'CLAUDE_CODE_FORCE_TERMINAL_IMAGES']) // amend 2026-10-18: AC-101
+    expect([...CAPABILITY_VARS]).toEqual(['COLORTERM', 'KITTY_WINDOW_ID', 'CLAUDE_CODE_FORCE_TERMINAL_IMAGES'])
   })
 
   test('true colour needs COLORTERM truecolor or 24bit, on every host and on an unknown one', () => {
@@ -65,8 +65,8 @@ describe('capabilities', () => {
     }
   })
 
-  // amend 2026-10-18: AC-101 -- `images` became `pictures`: Ghostty, cmux and kitty always; iTerm2 when forced; never tmux or Terminal.
-  test('AC-101: pictures on Ghostty, cmux and kitty; iTerm2 only when forced; never under tmux or in Terminal', () => {
+  // `images` became `pictures`: Ghostty, cmux and kitty always; iTerm2 when forced; never tmux or Terminal.
+  test('pictures on Ghostty, cmux and kitty; iTerm2 only when forced; never under tmux or in Terminal', () => {
     expect(capabilitiesOf({ host: 'Ghostty' }, { COLORTERM: 'truecolor' })).toEqual({ trueColor: true, pictures: true })
     expect(capabilitiesOf({ host: 'Ghostty' }, { COLORTERM: 'truecolor', TMUX: '/s,1,0' })).toEqual({ trueColor: true, pictures: false })
     expect(capabilitiesOf({ host: 'Ghostty' }, {})).toEqual({ trueColor: false, pictures: true })

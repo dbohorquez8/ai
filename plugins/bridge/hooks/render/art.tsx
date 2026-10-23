@@ -13,7 +13,7 @@ import type { CardView, PaneView } from '../core/types'
 
 type Els = Pick<Elements['terminal'], 'Box' | 'Text' | 'Raster' | 'Image'>
 
-/** The project icon and its gap at the start of line 1 (AC-41): the picture, or the monogram on the project colour. */
+/** The project icon and its gap at the start of line 1: the picture, or the monogram on the project colour. */
 export const iconOf = (els: Els, card: CardView): RenderElement[] => {
   const { Box, Text, Image } = els
   const { icon } = card

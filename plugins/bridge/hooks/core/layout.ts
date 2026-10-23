@@ -89,7 +89,7 @@ const bellOf = (mode: GlyphMode) => mode === 'plain' ? '!' : '\uf0f3'
 /**
  * A terminal may stretch a PUA glyph into a following ordinary space. NBSP is its documented one-cell
  * constraint, so the bell's two-cell slot is both the shake track and a safe neighbour for Nerd glyphs.
- * The bell rests left and shakes one cell right only (Owner, 2026-10-19): no gap opens before it.
+ * The bell rests left and shakes one cell right only no gap opens before it.
  */
 const bellSlotOf = (mode: GlyphMode, frame: 0 | 1 | 2): string => {
   const bell = bellOf(mode)
@@ -129,7 +129,7 @@ const projectOf = (_c: CardInput, project: string): Seg => text(project, { dim: 
 
 /**
  * Line 1: the project at the left and the status slot at the right edge; no terminal app is named
- * (Owner, 2026-10-18: the pane shows agents, not terminals). When the line is narrow the project is
+ * (the pane shows agents, not terminals). When the line is narrow the project is
  * cut; the slot is cut only when it alone is wider than the line.
  */
 export const line1Of = (c: CardInput, width: number): Seg[] => {
@@ -150,7 +150,7 @@ export const line1Of = (c: CardInput, width: number): Seg[] => {
 
 /**
  * The title run, weighted as designed: bold on a Done (unread) or woken card and on the own (open)
- * card (AC-11a), muted on an idle card already seen, plain otherwise.
+ * card, muted on an idle card already seen, plain otherwise.
  */
 const titleOf = (c: CardInput, title: string): TextSeg => {
   if (c.status === 'done' || c.woke || c.s.isSelf) return text(title, { role: 'title', bold: true })

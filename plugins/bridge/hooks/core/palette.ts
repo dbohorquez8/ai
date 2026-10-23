@@ -1,4 +1,4 @@
-// Palettes per theme mode: the generated hex values, adjusted deterministically for contrast (L7, AC-37 to AC-39).
+// Palettes per theme mode: the generated hex values, adjusted deterministically for contrast.
 
 import { projectColorsById } from '../project-colors'
 import { GENERATED } from './palette.generated'

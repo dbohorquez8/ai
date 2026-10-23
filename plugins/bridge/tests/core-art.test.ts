@@ -5,7 +5,7 @@ import { contrastRatio, ensureContrast, PALETTES, projectColorsOf, themeModeOf }
 import { GENERATED } from '../hooks/core/palette.generated'
 import { base64Of, DEFAULT_COLOR, hexToColor, packCells } from '../hooks/core/raster'
 import { POSE_FRAMES, sceneCells, SPINNER_FRAMES, spinnerCells } from '../hooks/core/sprites'
-import { STATUS_HUE, snapToRasterGrid } from '../hooks/core/types' // amend 2026-10-18: AC-93 -- (contextHueOf removed)
+import { STATUS_HUE, snapToRasterGrid } from '../hooks/core/types' // (contextHueOf removed)
 import type { CardView, Hue, PaneView, Pose, Status, ThemeMode } from '../hooks/core/types'
 
 tier('builtin')
@@ -28,7 +28,7 @@ const decode = (cells: string): Array<[number, number, number]> => {
   return out
 }
 
-describe('palette values (AC-37, AC-38, L7)', () => {
+describe('palette values', () => {
   const EXPECTED = {
     dark: { red: '#ff9f94', orange: '#f7bc95', yellow: '#ecd78a', green: '#98d5ac', blue: '#74d4ff', violet: '#c4b4ff', gray: '#d2d8e2', fill: '#2f313d' },
     light: { red: '#a50008', orange: '#7c3600', yellow: '#5e4b00', green: '#095c34', blue: '#0069a8', violet: '#664bad', gray: '#434850', fill: '#f1f2f8' },
@@ -43,12 +43,12 @@ describe('palette values (AC-37, AC-38, L7)', () => {
       near(PALETTES[mode].fill, EXPECTED[mode].fill)
     })
   }
-  test('each mode has its own set (AC-38)', () => {
+  test('each mode has its own set', () => {
     for (const hue of HUES) expect(PALETTES.dark.text[hue]).not.toBe(PALETTES.light.text[hue])
   })
 })
 
-describe('contrast (AC-39)', () => {
+describe('contrast', () => {
   test('contrastRatio matches known WCAG values', () => {
     expect(Math.round(contrastRatio('#000000', '#ffffff') * 1000)).toBe(21_000)
     expect(contrastRatio('#ffffff', '#ffffff')).toBe(1)
@@ -73,11 +73,11 @@ describe('contrast (AC-39)', () => {
       const surfaces = [p.bg, p.fill]
       for (const hue of HUES) check(mode, `text ${hue}`, p.text[hue], surfaces)
       for (const hue of Object.values(STATUS_HUE)) check(mode, `status ${hue}`, p.text[hue], surfaces)
-      // amend 2026-10-18: AC-93 -- the context tones are muted (gray) below 75, orange from 75, red at 100.
+      // the context tones are muted (gray) below 75, orange from 75, red at 100.
       for (const hue of ['gray', 'orange', 'red'] as const) check(mode, `context ${hue}`, p.text[hue], surfaces)
       check(mode, 'pill red', p.pill.red.fg, [p.pill.red.bg])
       check(mode, 'pill gray', p.pill.gray.fg, [p.pill.gray.bg])
-      check(mode, 'ink', p.ink, [p.fill]) // amend 2026-10-19: Owner demo -- plain text on the own-card fill
+      check(mode, 'ink', p.ink, [p.fill]) // plain text on the own-card fill
       const names = Array.from({ length: 60 }, (_, i) => `project-${i}`)
       for (const [name, color] of projectColorsOf(names, mode)) check(mode, `project ${name}`, color, surfaces)
     }
@@ -85,7 +85,7 @@ describe('contrast (AC-39)', () => {
   })
 })
 
-describe('project colours (AC-10)', () => {
+describe('project colours', () => {
   test('a name keeps its colour across calls', () => {
     for (const mode of MODES) expect(projectColorsOf(['alpha', 'beta'], mode).get('alpha')).toBe(projectColorsOf(['alpha', 'beta'], mode).get('alpha'))
   })
@@ -103,7 +103,7 @@ describe('project colours (AC-10)', () => {
   })
 })
 
-describe('themeModeOf (AC-38)', () => {
+describe('themeModeOf', () => {
   test("a Claude theme starting with 'light' is light", () => {
     expect(themeModeOf('light', 'auto')).toBe('light')
     expect(themeModeOf('light-daltonized', 'auto')).toBe('light')
@@ -151,21 +151,21 @@ describe('packCells (I-5)', () => {
   })
 })
 
-describe('sprites (AC-41 to AC-43)', () => {
+describe('sprites', () => {
   const POSES: readonly Pose[] = ['typing', 'waving', 'cheering', 'asleep']
   const isPrintable = (code: number) => code >= 0x20 && code <= 0xffff && !(code >= 0xd800 && code <= 0xdfff) && !(code >= 0x7f && code < 0xa0)
   test('every pose frame is 6 rows of 4 characters', () => {
     for (const pose of POSES) for (const frame of POSE_FRAMES[pose]) expect(frame.map(row => row.length)).toEqual([4, 4, 4, 4, 4, 4])
   })
-  test('the four poses have distinct first-frame grids', () => { // amend 2026-10-18: AC-42 -- poses now feed the working scene only
+  test('the four poses have distinct first-frame grids', () => { // poses now feed the working scene only
     expect(new Set(POSES.map(pose => POSE_FRAMES[pose][0]!.join('|'))).size).toBe(4)
   })
-  test('typing and waving have at least two distinct frames; cheering and asleep have one', () => { // amend 2026-10-18: AC-43
+  test('typing and waving have at least two distinct frames; cheering and asleep have one', () => {
     for (const pose of ['typing', 'waving'] as const) expect(new Set(POSE_FRAMES[pose].map(f => f.join('|'))).size).toBeGreaterThanOrEqual(2)
     expect(POSE_FRAMES.cheering).toHaveLength(1)
     expect(POSE_FRAMES.asleep).toHaveLength(1)
   })
-  // amend 2026-10-18: AC-41 -- cards draw no creature, so the per-card creature cell tests are gone.
+  // cards draw no creature, so the per-card creature cell tests are gone.
   test('the spinner is one width-1 braille cell per frame, in ten frames', () => {
     expect(SPINNER_FRAMES).toHaveLength(10)
     SPINNER_FRAMES.forEach((glyph, frame) => {
@@ -200,8 +200,8 @@ describe('sprites (AC-41 to AC-43)', () => {
   })
 })
 
-describe('animation policy (AC-22, AC-111 to AC-113)', () => {
-  test('the bell shakes rest, right, rest, right inside the first 800 ms of each 4 s window (AC-22)', () => {
+describe('animation policy', () => {
+  test('the bell shakes rest, right, rest, right inside the first 800 ms of each 4 s window', () => {
     let previous = bellOf(0)
     const changes: number[] = []
     for (let ms = 1; ms <= 12_000; ms += 1) {
@@ -214,7 +214,7 @@ describe('animation policy (AC-22, AC-111 to AC-113)', () => {
     expect(bellOf(3999)).toBe(0)
   })
 
-  test('a ticker at any offset draws every bell step once, in order (AC-22)', () => {
+  test('a ticker at any offset draws every bell step once, in order', () => {
     for (let offset = 0; offset < TICK_MS; offset += 10) {
       expect([0, 1, 2, 3].map(i => bellOf(offset + i * TICK_MS))).toEqual([0, 2, 0, 2])
     }
@@ -222,27 +222,27 @@ describe('animation policy (AC-22, AC-111 to AC-113)', () => {
 
   const card = (id: string, status: Status, extra: Partial<CardView> = {}): CardView => ({
     id, prefId: id, shelf: 'active', form: 'full', status,
-    icon: { kind: 'monogram', letter: 'P', text: 'P ', color: '#88aacc', ink: '#000000' }, // amend 2026-10-18: AC-41
+    icon: { kind: 'monogram', letter: 'P', text: 'P ', color: '#88aacc', ink: '#000000' },
     lines: [[{ kind: 'text', text: 'line' }]], isSelected: false, isDim: false, actions: [],
     labels: { pin: 'Pin', park: 'Park', settle: 'Settle' }, ...extra,
   })
   const spinnerLines: CardView['lines'] = [[{ kind: 'spinner' }, { kind: 'text', text: ' Working' }]]
   const view = (cards: CardView[], extra: Partial<PaneView> = {}): PaneView => ({
     needYou: 0, shelves: [{ id: 'active', header: 'Active', isCollapsed: false, cards, hasSort: false }],
-    width: 44, contentWidth: 42, sort: 'recent', settings: { icons: true, theme: 'auto', workingShelf: false }, selectedFill: PALETTES.dark.fill, palette: PALETTES.dark, ...extra, // amend 2026-10-18: AC-08a
+    width: 44, contentWidth: 42, sort: 'recent', settings: { icons: true, theme: 'auto', workingShelf: false }, selectedFill: PALETTES.dark.fill, palette: PALETTES.dark, ...extra,
   })
 
   test('nothing animates while the pane is hidden', () => {
     expect(isAnimating(view([card('a', 'working', { lines: spinnerLines })]), false)).toBe(false)
   })
-  test('idle and done cards with no scene do not animate (AC-111)', () => {
+  test('idle and done cards with no scene do not animate', () => {
     expect(isAnimating(view([card('a', 'idle'), card('b', 'done')]), true)).toBe(false)
     expect(isAnimating(view([]), true)).toBe(false)
   })
-  test('one working card animates (AC-112)', () => {
+  test('one working card animates', () => {
     expect(isAnimating(view([card('a', 'idle'), card('b', 'working', { lines: spinnerLines })]), true)).toBe(true)
   })
-  test('a needs-you pill and a scene with art each animate', () => { // amend 2026-10-18: AC-41
+  test('a needs-you pill and a scene with art each animate', () => {
     expect(isAnimating(view([card('a', 'needs-you')]), true)).toBe(true)
     expect(isAnimating(view([card('a', 'idle')], { scene: { kind: 'hills', caption: 'x', showArt: true, width: 40 } }), true)).toBe(true)
     expect(isAnimating(view([], { scene: { kind: 'hills', caption: 'x', showArt: false, width: 40 } }), true)).toBe(false)
@@ -253,20 +253,20 @@ describe('animation policy (AC-22, AC-111 to AC-113)', () => {
     expect(isAnimating(collapsed, true)).toBe(false)
   })
 
-  test('framesAt emits at most 10 frames per raster over 10 ticks (AC-113)', () => {
+  test('framesAt emits at most 10 frames per raster over 10 ticks', () => {
     const busy = view(
       [card('a', 'working', { lines: spinnerLines }), card('b', 'needs-you'), card('c', 'done')],
       { scene: { kind: 'working', caption: 'x', showArt: true, width: 40 } },
     )
     const counts = new Map<string, number>()
     for (let tick = 0; tick < 10; tick += 1) for (const blit of framesAt(busy, tick, 'dark')) counts.set(blit.key, (counts.get(blit.key) ?? 0) + 1)
-    expect([...counts.keys()].sort()).toEqual(['scene', 'spin:a']) // amend 2026-10-18: AC-41 -- no creature on cards
+    expect([...counts.keys()].sort()).toEqual(['scene', 'spin:a']) // no creature on cards
     for (const count of counts.values()) expect(count).toBeLessThanOrEqual(10)
   })
   test('framesAt skips still rasters and uses each raster size', () => {
     const blits = framesAt(view([card('c', 'done'), card('d', 'idle')]), 3, 'light')
     expect(blits).toEqual([])
-    // amend 2026-10-18: AC-41 -- the spinner is the only card Raster
+    // the spinner is the only card Raster
     const [spin, more] = framesAt(view([card('a', 'working', { lines: spinnerLines })]), 3, 'dark')
     expect([spin!.key, spin!.columns, spin!.rows]).toEqual(['spin:a', 1, 1])
     expect(more).toBeUndefined()
@@ -285,6 +285,6 @@ describe('animation policy (AC-22, AC-111 to AC-113)', () => {
   })
   test('frame helpers follow the shared formulas', () => {
     expect([0, 9, 10, 13].map(spinnerFrameAt)).toEqual([0, 9, 0, 3])
-    expect([0, 2, 3, 6].map(sceneFrameAt)).toEqual([0, 0, 1, 2]) // amend 2026-10-18: AC-110 -- 200 ms ticks, so the 600 ms scene frame is every 3
+    expect([0, 2, 3, 6].map(sceneFrameAt)).toEqual([0, 0, 1, 2]) // 200 ms ticks, so the 600 ms scene frame is every 3
   })
 })

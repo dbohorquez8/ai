@@ -61,7 +61,7 @@ export const paneViewOf = (input: {
   const showIcons = stored.settings.icons && isWide
   const canPicture = input.caps.pictures && input.caps.trueColor
 
-  /** The picture where the terminal draws one and the project has one, else the monogram (AC-42, AC-43, AC-102). */
+  /** The picture where the terminal draws one and the project has one, else the monogram. */
   const iconOf = (project: string, color: string): CardIcon => {
     if (!showIcons || !project) return { kind: 'none' }
     const letter = projectMonogramLetter(project)

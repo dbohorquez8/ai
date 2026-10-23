@@ -1,14 +1,14 @@
 #!/bin/sh
 # Layer checker for the bridge mod (rule table L1).
 #
-# Usage: sh tools/check-sidebar-layers.sh <plugin dir>
+# Usage: sh tools/check-bridge-layers.sh <plugin dir>
 #
 # Prints each violation as `file:line: rule` and exits 1 when there is any;
 # exits 0 on a clean tree and 2 on a usage error. Folders that do not exist
 # yet are skipped.
 #
 #   hooks/core/*.ts and the four legacy pure modules
-#       imports only ./*, ../sidebar-policy, ../card-policy, ../relative-time,
+#       imports only ./*, ../pane-policy, ../card-policy, ../relative-time,
 #       ../project-colors, and ../../types (types only); no `$.`; no terminal
 #       names, in code or in comments
 #   hooks/render/*.tsx
@@ -21,7 +21,7 @@ set -u
 
 dir=${1:-}
 if [ -z "$dir" ] || [ ! -d "$dir/hooks" ]; then
-  echo "usage: sh tools/check-sidebar-layers.sh <plugin dir>" >&2
+  echo "usage: sh tools/check-bridge-layers.sh <plugin dir>" >&2
   exit 2
 fi
 
@@ -83,7 +83,7 @@ check_imports() {
         ;;
       ../core/*|../core)
         [ "$layer" = adapters ] && { [ "$spec" = ../core/types ] && [ "$kind" = type ] || report "$f" "$n" "adapters may import ../core/types as a type only"; } ;;
-      ../sidebar-policy|../card-policy|../relative-time|../project-colors)
+      ../pane-policy|../card-policy|../relative-time|../project-colors)
         [ "$layer" = core ] || report "$f" "$n" "$layer must not import $spec" ;;
       ../../types|../../types/*)
         if [ "$layer" = core ] && [ "$kind" = type ]; then continue; fi
@@ -111,7 +111,7 @@ scan core "$@"
 
 # Legacy modules sit in hooks/, so ./x is a sibling; apply the core text bans
 # and the forbidden-import rules (their relative paths are one level up).
-for f in "$h/sidebar-policy.ts" "$h/card-policy.ts" "$h/relative-time.ts" "$h/project-colors.ts"; do
+for f in "$h/pane-policy.ts" "$h/card-policy.ts" "$h/relative-time.ts" "$h/project-colors.ts"; do
   [ -f "$f" ] || continue
   bans "$f"
   imports_of "$f" | while IFS='	' read -r n spec kind; do
@@ -137,5 +137,5 @@ if [ -s "$out" ]; then
   sort -t: -k1,1 -k2,2n "$out"
   exit 1
 fi
-echo "sidebar layers: ok"
+echo "bridge layers: ok"
 exit 0

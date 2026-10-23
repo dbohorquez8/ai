@@ -1,15 +1,15 @@
-// Compiled from docs/features/009-ws-84-claude-sidebar-mod/validation-plan.md (Workspace repo).
-// Unit (U) and harness-render (H) rows only. Live-Ghostty (G), live-tmux (T) and Owner-visual (O) rows are todos.
+// Black-box tests of the pane, compiled from its validation plan.
+// Unit (U) and harness-render (H) rows only. Live-Ghostty (G), live-tmux (T) and manual visual check (O) rows are todos.
 // Black-box: the pane is driven through the module entry (hooks/register.tsx) with the process runner,
 // file reads and clock stubbed at the lowest boundary. The implementation is not built yet; failures are the bar.
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { REGISTRY_SCRIPT, REGISTRY_SEPARATOR } from '../hooks/sidebar-policy'
+import { REGISTRY_SCRIPT, REGISTRY_SEPARATOR } from '../hooks/pane-policy'
 import { BRANCH_SCRIPT, TITLE_SCRIPT } from '../hooks/card-policy'
 import { PANE_COLUMNS } from '../hooks/register'
 import { PALETTES, contrastRatio, projectColorsOf, themeModeOf } from '../hooks/core/palette'
-import { SIDEBAR_ARGS_HINT } from '../hooks/core/persist' // amend 2026-10-18: AC-08a, AC-45
+import { PANE_ARGS_HINT } from '../hooks/core/persist'
 import { cellWidth } from '../hooks/core/width'
 import { spinnerCells } from '../hooks/core/sprites'
 import { hexToColor, snapToRasterGrid } from '../hooks/core/types'
@@ -43,13 +43,13 @@ type World = {
   term?: 'ghostty' | 'unknown'; truecolor?: boolean; copies?: string[]; toasts?: string[]; views?: Array<Record<string, unknown>>; ran?: string[][]; reads?: string[][]
   focusCalls?: string[]; focusFails?: string; focusAnswer?: string; gh?: 'ok' | 'absent'; ghCalls?: string[][]; registryRaw?: string; listingBroken?: boolean
   transcriptReads?: number; storeRaw?: string; hidden?: boolean
-  /** Every `$.process.run`, counted (AC-109); every `$.ui.blit` the pane sent (AC-20a, AC-43, AC-111 to AC-113). */
+  /** Every `$.process.run`, counted; every `$.ui.blit` the pane sent. */
   runs?: number; blits?: Array<{ key: string; cells: string }>
   /** What `claude agents --json` prints (the 30 s cross-check). */
   agentsJson?: unknown[]
   /** The Claude theme `$.config.list()` reports (absent: none readable). */
   theme?: string
-  // amend 2026-10-18: AC-42 -- files `$.fs` sees (path to mtime), and each icon conversion the pane ran.
+  // files `$.fs` sees (path to mtime), and each icon conversion the pane ran.
   files?: Record<string, number>; converts?: string[][]
   /** Rows of a ListAgents `subagents` section (the own session's agent loops). */
   subagentRows?: unknown[]
@@ -57,7 +57,7 @@ type World = {
 const PANE_PROPS = (cols: number, placement: 'dock' | 'inline' = 'dock') => ({
   title: 'Bridge', isFocused: false, bodyColumns: cols, placement, scroll: { offset: 0, bodyRows: 40 }, view: {},
 })
-// phase 2: AC-108 -- registry times are relative to the mount time, so `updatedAt` stays fixed between refreshes.
+// phase 2: registry times are relative to the mount time, so `updatedAt` stays fixed between refreshes.
 const registryOf = (sessions: Sess[], now: number) =>
   sessions.map((s, i) => JSON.stringify({
     pid: i + 1, startedAt: now - (s.startedAgoMs ?? DAY), updatedAt: now - (s.ageMs ?? 0), statusSince: now - (s.sinceMs ?? s.ageMs ?? 0),
@@ -71,7 +71,7 @@ const listingOf = (sessions: Sess[], subagentRows: unknown[] = []) => ({
     { kind: 'sessions', total: sessions.length, rows: sessions.map(s => ({ name: s.name, ref: refOf(s.name), status: s.status ?? 'idle' })) },
   ],
 })
-// phase 2: AC-95 -- a session with no app of its own runs in the pane's terminal (an unknown one in the unknown world).
+// phase 2: a session with no app of its own runs in the pane's terminal (an unknown one in the unknown world).
 const probeOf = (sessions: Sess[], term: World['term'] = 'ghostty') => sessions.map((s, i) => {
   const env = s.app === undefined && term === 'unknown' ? 'TERM_PROGRAM=someterm' : { ghostty: 'TERM_PROGRAM=ghostty', tmux: 'TMUX=/tmp/t TERM_PROGRAM=tmux', cmux: 'CMUX_WORKSPACE_ID=W1 CMUX_SURFACE_ID=S1 TERM_PROGRAM=ghostty', terminal: 'TERM_PROGRAM=Apple_Terminal' }[s.app ?? 'ghostty']
   return `${i + 1} ttys00${i + 1} claude --x ${env}`
@@ -103,7 +103,7 @@ const engine = (on: On, sessions: Sess[], world: World) => {
   on('session.id', () => ({ value: idOf(self()) }))
   on('tool.call', { tool: 'ListAgents' }, () => ({ result: current.world.listingBroken ? { listing: 'text', sections: [{ kind: 'sessions', rows: current.sessions.map(s => ({ name: s.name })) }] } : listingOf(current.sessions, current.world.subagentRows) }) as never)
   on('agent.list', () => ({ value: current.world.agents ?? [] }) as never)
-  // phase 2: AC-93 -- the own card's context comes from $.session.usage().
+  // phase 2: the own card's context comes from $.session.usage().
   on('session.usage', () => {
     const own = current.sessions.find(one => one.name === self())
     return { value: { startedAt: 0, context: { window: 200_000, ...(own?.ctx === undefined ? {} : { percent: own.ctx }) }, rateLimits: [] } } as never
@@ -125,12 +125,12 @@ const engine = (on: On, sessions: Sess[], world: World) => {
     if (current.world.truecolor !== false) base.COLORTERM = 'truecolor'
     return { value: { ...base, ...current.world.env }[name] } as never
   })
-  // amend 2026-10-18: AC-42 -- the project folders' files; a missing path rejects as ENOENT.
-  // amend 2026-10-18: AC-13a -- the stop hook the engine raises; nothing beneath the plugins in a test.
+  // the project folders' files; a missing path rejects as ENOENT.
+  // the stop hook the engine raises; nothing beneath the plugins in a test.
   on('classic.Stop', () => ({}) as never)
-  // amend 2026-10-19: AC-G1 -- the stop-failure hook the engine raises on an API error.
+  // the stop-failure hook the engine raises on an API error.
   on('classic.StopFailure', () => ({}) as never)
-  // amend 2026-10-19: review P2-b -- the next prompt clears Failed (an interrupted turn has no Stop).
+  // the next prompt clears Failed (an interrupted turn has no Stop).
   on('classic.UserPromptSubmit', () => ({}) as never)
   on('fs.stat', ($s, e) => {
     const mtimeMs = current.world.files?.[(e as { path: string }).path]
@@ -152,7 +152,7 @@ const engine = (on: On, sessions: Sess[], world: World) => {
         // phase 2: the argument is `<mode>:<slug>/<session id>`; the id is after the slash.
         const id = spec.split('/').at(-1) ?? ''
         const s = current.sessions.find(one => idOf(one.name) === id)
-        // phase 2: AC-11, AC-13, AC-17 -- the reader prints the transcript records themselves, then the model match.
+        // phase 2: the reader prints the transcript records themselves, then the model match.
         const ai = s?.title ? JSON.stringify({ type: 'ai-title', aiTitle: s.title }) : ''
         const prompt = s?.prompt ? JSON.stringify({ type: 'last-prompt', lastPrompt: s.prompt }) : ''
         const model = s?.model ? `"model":"${s.model}"` : ''
@@ -181,7 +181,7 @@ const engine = (on: On, sessions: Sess[], world: World) => {
 }
 
 type Ui = any
-// amend 2026-10-18: AC-08a -- the Working shelf is a setting, off by default; tests of the shelf turn it on.
+// the Working shelf is a setting, off by default; tests of the shelf turn it on.
 const SHELF_ON = ['setting:workingShelf', true] as const
 const shelfOn = () => ({ store: new Map<string, unknown>([SHELF_ON]) })
 
@@ -194,8 +194,8 @@ const mountPane = async ($: any, on: On, sessions: Sess[], world: World = {}, co
   const ui: Ui = await $.ui.mount({ plugin: 'bridge', surface: 'terminal', component: 'Pane', props: PANE_PROPS(cols, placement) as never, requestId })
   return { ui, store, clock, world }
 }
-// amend 2026-10-18: AC-08a, AC-45 -- settings are `/bridge` arguments; this types the command with them.
-const sidebarCommand = async ($: any, args: string) => $.command.run({ command: 'bridge', args } as never)
+// settings are `/bridge` arguments; this types the command with them.
+const paneCommand = async ($: any, args: string) => $.command.run({ command: 'bridge', args } as never)
 const textOf = async (ui: Ui) => (await ui.findAll({ type: 'Text' })).map((one: any) => one.text as string).join('\n')
 // phase 2: the harness text has no newlines, so a card's lines are read through their `line1:`/`line2:`/`line3:` keys.
 const linesById = async (ui: Ui, id: string) => {
@@ -207,15 +207,15 @@ const linesById = async (ui: Ui, id: string) => {
   return lines.join('\n')
 }
 const rowText = async (ui: Ui, name: string) => linesById(ui, refOf(name))
-// amend 2026-10-18: AC-41 -- the creature art column is gone; the project icon is drawn inside line 1 (its text counts there).
+// the creature art column is gone; the project icon is drawn inside line 1 (its text counts there).
 /** Which project icon a card draws: its picture (an Image), its monogram (a keyed Text box), or none. */
 const iconKindOf = async (ui: Ui, name: string) => ((await ui.find({ key: `icon:${refOf(name)}` })) ? 'picture' : (await ui.find({ key: `monogram:${refOf(name)}` })) ? 'monogram' : 'none')
 /** A world where the pane can cache pictures (HOME is known) and the given project files exist. */
 const withFiles = (files: Record<string, number>, extra: World = {}): World => ({ ...extra, files, converts: [], env: { HOME: '/h', ...extra.env } })
 const blitsOf = (world: World, key: string) => (world.blits ?? []).filter(one => one.key === key)
-// amend 2026-10-18: AC-68 -- the open Active header is three presses (name and rule, `↕`, chevron) in one `header:` row.
+// the open Active header is three presses (name and rule, `↕`, chevron) in one `header:` row.
 const headerText = async (ui: Ui, shelf: string) => ((await ui.find({ key: `header:${shelf}` }))?.text ?? (await ui.find({ key: `shelf:${shelf}` }))?.text ?? '') as string
-// amend 2026-10-18: AC-68 -- the sort mode is chosen from the menu the Active header's `↕` opens.
+// the sort mode is chosen from the menu the Active header's `↕` opens.
 const pickSort = async (ui: Ui, mode: string) => { await ui.press({ key: 'sort' }); await ui.press({ key: `sort:${mode}` }) }
 const hasText = async (ui: Ui, text: string | RegExp) => (await ui.find({ text })) !== undefined
 const orderOf = async (ui: Ui) => {
@@ -235,14 +235,14 @@ const AGENT = (id: string, status: string, description?: string, extra: object =
 
 // ---------------------------------------------------------------- 1. Shelf headers
 describe('1. shelf headers', () => {
-  test('AC-01a Owner glances at a shelf header (name in muted style)', async ($, on) => {
+  test('A person glances at a shelf header (name in muted style)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { status: 'idle' })])
     const header = await ui.find({ key: 'shelf:active' })
     expect(header?.text).toMatch(/^Active/)
     const name = (await ui.findAll({ type: 'Text' })).find((one: any) => one.text === 'Active' || /^Active\b/.test(one.text))
     expect(name?.props.dimColor).toBe(true)
   })
-  test('AC-01b Owner glances at a shelf header (thin rule fills the remaining line)', async ($, on) => {
+  test('A person glances at a shelf header (thin rule fills the remaining line)', async ($, on) => {
     for (const cols of [44, 70]) {
       const { ui } = await mountPane($, on, [S('alpha')], {}, cols)
       const header = await headerText(ui, 'active')
@@ -250,34 +250,34 @@ describe('1. shelf headers', () => {
       expect([...header].length).toBe(cols - 2)
     }
   })
-  test('AC-01c Owner glances at a shelf header (chevron at the right end)', async ($, on) => {
+  test('A person glances at a shelf header (chevron at the right end)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha')])
-    expect(await headerText(ui, 'active')).toMatch(/[⌃⌄]$/) // amend 2026-10-18: AC-02
-    // amend 2026-10-18: AC-01c, AC-68 -- the open chevron is ⌃ after the sort mark, the collapsed one is ⌄.
+    expect(await headerText(ui, 'active')).toMatch(/[⌃⌄]$/)
+    // the open chevron is ⌃ after the sort mark, the collapsed one is ⌄.
     expect(await headerText(ui, 'active')).toMatch(/─ ↕ ⌃$/)
     await press(ui, 'shelf:active')
     expect(await headerText(ui, 'active')).toMatch(/─ ⌄$/)
   })
-  // amend 2026-10-18: AC-02 -- the chevron points up when open and down when collapsed.
-  test('AC-02 Owner opens or collapses a shelf (chevron up when open, down when collapsed)', async ($, on) => {
+  // the chevron points up when open and down when collapsed.
+  test('A person opens or collapses a shelf (chevron up when open, down when collapsed)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('a', { status: 'idle' }), S('b', { status: 'idle', cwd: '/q' })])
-    expect(await headerText(ui, 'active')).toMatch(/⌃$/) // amend 2026-10-18: AC-02
+    expect(await headerText(ui, 'active')).toMatch(/⌃$/)
     await press(ui, 'shelf:active')
-    expect(await headerText(ui, 'active')).toMatch(/⌄$/) // amend 2026-10-18: AC-02
+    expect(await headerText(ui, 'active')).toMatch(/⌄$/)
     await press(ui, 'shelf:active')
-    expect(await headerText(ui, 'active')).toMatch(/⌃$/) // amend 2026-10-18: AC-02
+    expect(await headerText(ui, 'active')).toMatch(/⌃$/)
   })
-  test('AC-03 Owner sees a collapsed shelf (count in brackets)', async ($, on) => {
+  test('A person sees a collapsed shelf (count in brackets)', async ($, on) => {
     const sessions = Array.from({ length: 23 }, (_, i) => S(`done${i}`, { status: 'idle' }))
     const store = new Map<string, unknown>(sessions.map(s => [`pref:${idOf(s.name)}`, { isSettled: true }]))
     const { ui } = await mountPane($, on, sessions, { store })
     expect(await headerText(ui, 'settled')).toContain('Settled (23)')
   })
-  test('AC-04 Owner sees an open shelf (no count)', async ($, on) => {
+  test('A person sees an open shelf (no count)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('a'), S('b'), S('c')])
     expect(await headerText(ui, 'active')).not.toContain('(')
   })
-  test('AC-05 Owner presses a header (toggles open and closed)', async ($, on) => {
+  test('A person presses a header (toggles open and closed)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('a'), S('b')])
     await press(ui, 'shelf:active')
     expect((await orderOf(ui)).active ?? []).toEqual([])
@@ -285,22 +285,22 @@ describe('1. shelf headers', () => {
     await press(ui, 'shelf:active')
     expect((await orderOf(ui)).active).toEqual(refs('a', 'b').sort((x, y) => 0))
   })
-  test('AC-06 Owner has no parked sessions (empty shelf not drawn)', async ($, on) => {
+  test('A person has no parked sessions (empty shelf not drawn)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('a')])
     expect(await hasText(ui, /Parked/)).toBe(false)
   })
-  test('AC-07 Owner scans the pane (one blank line between shelves)', async ($, on) => {
-    const store = new Map<string, unknown>([[`pref:${idOf('p')}`, { isPinned: true }], SHELF_ON]) // amend 2026-10-18: AC-08a
+  test('A person scans the pane (one blank line between shelves)', async ($, on) => {
+    const store = new Map<string, unknown>([[`pref:${idOf('p')}`, { isPinned: true }], SHELF_ON])
     const { ui } = await mountPane($, on, [S('p'), S('a'), S('w', { status: 'busy' })], { store })
-    // phase 2: AC-07 -- the blank line is the section's top margin, so it is counted on the sections.
+    // phase 2: the blank line is the section's top margin, so it is counted on the sections.
     const sections = (await ui.findAll({ type: 'Box' })).filter((one: any) => (one.key ?? '').startsWith('section:'))
     expect(sections.length).toBe(3)
     expect(sections.filter((one: any) => one.props.marginTop === 1).length).toBe(2)
     expect(sections[0]!.props.marginTop ?? 0).toBe(0)
   })
-  test('AC-08 First use (default open and collapsed set)', async ($, on) => {
+  test('First use (default open and collapsed set)', async ($, on) => {
     const prefs = (key: string) => new Map<string, unknown>([[`pref:${idOf(key)}`, key === 'pin' ? { isPinned: true } : key === 'snz' ? { snoozedUntil: TUE_10 + 5 * HOUR } : key === 'prk' ? { isParked: true } : key === 'stl' ? { isSettled: true } : {}]])
-    const store = new Map<string, unknown>([...prefs('pin'), ...prefs('snz'), ...prefs('prk'), ...prefs('stl'), SHELF_ON]) // amend 2026-10-18: AC-08a
+    const store = new Map<string, unknown>([...prefs('pin'), ...prefs('snz'), ...prefs('prk'), ...prefs('stl'), SHELF_ON])
     const { ui } = await mountPane($, on, [S('pin'), S('act', { status: 'waiting' }), S('wrk', { status: 'busy' }), S('ina', { ageMs: 7 * HOUR }), S('snz'), S('prk'), S('stl')], { store })
     const order = await orderOf(ui)
     for (const open of ['pinned', 'active', 'working']) expect(order[open]?.length).toBe(1)
@@ -310,43 +310,43 @@ describe('1. shelf headers', () => {
 
 // ---------------------------------------------------------------- 2. Cards
 describe('2. cards', () => {
-  test('AC-09a Owner reads line 1 (project name first)', async ($, on) => {
-    const { ui } = await mountPane($, on, [S('alpha', { cwd: '/p/koombea' })])
-    expect(await rowText(ui, 'alpha')).toMatch(/^K  koombea/) // amend 2026-10-18: AC-41 -- the icon, then one space, then the project
+  test('A person reads line 1 (project name first)', async ($, on) => {
+    const { ui } = await mountPane($, on, [S('alpha', { cwd: '/p/kiosk-web' })])
+    expect(await rowText(ui, 'alpha')).toMatch(/^K  kiosk-web/) // the icon, then one space, then the project
   })
-  test('AC-09b Owner reads line 1 (status slot right-aligned)', async ($, on) => {
+  test('A person reads line 1 (status slot right-aligned)', async ($, on) => {
     for (const cols of [44, 70]) {
       const { ui } = await mountPane($, on, [S('alpha', { status: 'waiting' })], {}, cols)
       const first = (await rowText(ui, 'alpha')).split('\n')[0]!
       expect(first).toMatch(/Needs you\u00a0\ue0b4\s*$/)
-      // amend 2026-10-18: AC-41 -- line 1, icon included, fills the pane exactly.
+      // line 1, icon included, fills the pane exactly.
       expect(cellWidth(first)).toBe(cols - 2)
     }
   })
-  test('AC-11 Owner reads line 2 (title in normal text colour)', async ($, on) => {
+  test('A person reads line 2 (title in normal text colour)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { title: 'Fix the login bug' })])
     expect(await rowText(ui, 'alpha')).toContain('Fix the login bug')
     const title = (await ui.findAll({ type: 'Text' })).find((one: any) => one.text.includes('Fix the login bug'))
     expect(title?.props.dimColor).not.toBe(true)
   })
-  test('AC-12a Owner reads line 3 (branch mark and branch, muted)', async ($, on) => {
+  test('A person reads line 3 (branch mark and branch, muted)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { branch: 'main' })])
     expect((await rowText(ui, 'alpha')).split('\n')[2]).toMatch(/^\s*\S\s*main/)
     const branch = (await ui.findAll({ type: 'Text' })).find((one: any) => /main/.test(one.text))
     expect(branch?.props.dimColor).toBe(true)
   })
-  test('AC-12b Owner reads line 3 (details after the branch when they fit)', async ($, on) => {
+  test('A person reads line 3 (details after the branch when they fit)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { branch: 'main', ctx: 40 })], {}, 70)
     expect((await rowText(ui, 'alpha')).split('\n')[2]).toMatch(/main.*40%/)
   })
-  test('AC-13 Owner reads details (order: child badge, model, PR number, context %)', async ($, on) => {
+  test('A person reads details (order: child badge, model, PR number, context %)', async ($, on) => {
     const world: World = { agents: [AGENT('s1', 'running', 'Scan')], ghCalls: [] }
-    // phase 2: AC-13 -- the model comes from the transcript's model field; the PR lookup's first run is 60 s after start.
+    // phase 2: the model comes from the transcript's model field; the PR lookup's first run is 60 s after start.
     const { ui, clock } = await mountPane($, on, [S('alpha', { branch: 'feat', ctx: 40, model: 'claude-opus-5-5' })], world, 90)
     await clock.advance(61_000); await ui.advance(61_000)
     expect((await rowText(ui, 'alpha')).split('\n')[2]).toMatch(/●.*(opus|sonnet|haiku).*PR #42.*40%/i)
   })
-  test('AC-14 Owner narrows the pane (details drop from the end; the branch drops last)', async ($, on) => {
+  test('A person narrows the pane (details drop from the end; the branch drops last)', async ($, on) => {
     const world: World = { agents: [AGENT('s1', 'running', 'Scan')] }
     let last = ''
     for (const cols of [90, 70, 56, 44, 34, 24, 18, 12]) {
@@ -357,7 +357,7 @@ describe('2. cards', () => {
       last = line
     }
   })
-  test('AC-15 Owner has a long title (no wrap; ellipsis)', async ($, on) => {
+  test('A person has a long title (no wrap; ellipsis)', async ($, on) => {
     const long = 'x'.repeat(200)
     for (const cols of [30, 44, 110]) {
       const { ui } = await mountPane($, on, [S('alpha', { title: long, branch: long })], {}, cols)
@@ -366,75 +366,75 @@ describe('2. cards', () => {
       expect(text).toContain('…')
     }
   })
-  test('AC-16 Owner opens a non-git folder (no branch mark, no branch)', async ($, on) => {
+  test('A person opens a non-git folder (no branch mark, no branch)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { branch: null })])
     const line3 = (await rowText(ui, 'alpha')).split('\n')[2] ?? ''
     expect(line3).not.toMatch(/main/)
     expect(line3).not.toMatch(/^\s*\S\s*$/)
   })
-  test('AC-17a Owner has a generated title (generated title shown)', async ($, on) => {
+  test('A person has a generated title (generated title shown)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { title: 'Generated', prompt: 'last prompt' })])
     expect(await rowText(ui, 'alpha')).toContain('Generated')
   })
-  test('AC-17b Owner has no generated title (falls back to the last prompt)', async ($, on) => {
+  test('A person has no generated title (falls back to the last prompt)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { prompt: 'last prompt' })])
     expect(await rowText(ui, 'alpha')).toContain('last prompt')
   })
-  test('AC-17c Owner has neither (falls back to the session name)', async ($, on) => {
+  test('A person has neither (falls back to the session name)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha')])
     expect((await rowText(ui, 'alpha')).split('\n')[1]).toContain('alpha')
   })
-  test('AC-18 Owner has working sessions (working card is one line)', async ($, on) => {
-    const { ui } = await mountPane($, on, [S('alpha', { status: 'busy', title: 'T' })], shelfOn()) // amend 2026-10-18: AC-08a
+  test('A person has working sessions (working card is one line)', async ($, on) => {
+    const { ui } = await mountPane($, on, [S('alpha', { status: 'busy', title: 'T' })], shelfOn())
     const text = await rowText(ui, 'alpha')
     expect(text.split('\n').length).toBe(1)
     expect(text).toMatch(/Working/)
   })
-  test('AC-19a Session in another terminal app (card dimmed)', async ($, on) => {
+  test('Session in another terminal app (card dimmed)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine'), S('other', { app: 'tmux' })])
     expect((await ui.find({ key: `open:${refOf('other')}` }))?.props.dimColor).toBe(true)
     expect((await ui.find({ key: `open:${refOf('mine')}` }))?.props.dimColor).not.toBe(true)
   })
-  test('AC-19b Session in another terminal app (app name on line 1; the status slot keeps the right edge)', async ($, on) => {
+  test('Session in another terminal app (app name on line 1; the status slot keeps the right edge)', async ($, on) => {
     const wide = await mountPane($, on, [S('mine'), S('other', { app: 'tmux', status: 'waiting' })], {}, 70)
     expect((await rowText(wide.ui, 'other')).split('\n')[0]).toMatch(/^(?!.*tmux).*Needs you\u00a0\ue0b4\s*$/)
-    const narrow = await mountPane($, on, [S('mine'), S('other', { app: 'tmux', status: 'waiting' })], {}, 26) // amend 2026-10-18: AC-41 -- the icon no longer narrows line 1 at 30
+    const narrow = await mountPane($, on, [S('mine'), S('other', { app: 'tmux', status: 'waiting' })], {}, 26) // the icon no longer narrows line 1 at 30
     const line = (await rowText(narrow.ui, 'other')).split('\n')[0]!
     expect(line).not.toMatch(/tmux/)
     expect(line).toMatch(/Needs you\u00a0\ue0b4\s*$/)
   })
 })
 
-// amend 2026-10-18: AC-08a, AC-08b -- the Working shelf is a setting, off by default.
+// the Working shelf is a setting, off by default.
 describe('1b. working shelf setting', () => {
-  // amend 2026-10-18: AC-08a -- the setting is `/bridge working-shelf on|off`; the pane has no settings rows.
-  test('AC-08a "/bridge working-shelf on|off" sets the Working shelf, off by default, persisted under setting:workingShelf', async ($, on) => {
+  // the setting is `/bridge working-shelf on|off`; the pane has no settings rows.
+  test('"/bridge working-shelf on|off" sets the Working shelf, off by default, persisted under setting:workingShelf', async ($, on) => {
     const { ui, store } = await mountPane($, on, [S('mine'), S('w', { status: 'busy' })])
-    expect(await ui.find({ key: 'setting:workingShelf' })).toBeUndefined() // amend 2026-10-18: AC-08a
+    expect(await ui.find({ key: 'setting:workingShelf' })).toBeUndefined()
     expect(await ui.find({ key: 'shelf:working' })).toBeUndefined()
-    expect(await sidebarCommand($, 'working-shelf on')).toMatchObject({ text: 'Working shelf: on' }) // amend 2026-10-18: AC-08a
+    expect(await paneCommand($, 'working-shelf on')).toMatchObject({ text: 'Working shelf: on' })
     expect(store.get('setting:workingShelf')).toBe(true)
     expect((await orderOf(ui)).working).toEqual(refs('w'))
     const restarted = await mountPane($, on, [S('mine'), S('w', { status: 'busy' })], { store })
     expect((await orderOf(restarted.ui)).working).toEqual(refs('w'))
-    expect(await sidebarCommand($, 'working-shelf off')).toMatchObject({ text: 'Working shelf: off' }) // amend 2026-10-18: AC-08a
+    expect(await paneCommand($, 'working-shelf off')).toMatchObject({ text: 'Working shelf: off' })
     expect(store.get('setting:workingShelf')).toBe(false)
     expect((await orderOf(restarted.ui)).active).toContain(refOf('w'))
   })
-  test('AC-08d "/bridge glyphs auto|nerd|plain" persists the override; plain keeps capped pills readable', async ($, on) => {
+  test('"/bridge glyphs auto|nerd|plain" persists the override; plain keeps capped pills readable', async ($, on) => {
     const { ui, store } = await mountPane($, on, [S('alpha', { status: 'waiting' })])
-    expect(await sidebarCommand($, 'glyphs plain')).toMatchObject({ text: 'Glyphs: plain' })
+    expect(await paneCommand($, 'glyphs plain')).toMatchObject({ text: 'Glyphs: plain' })
     expect(store.get('setting:glyphs')).toBe('plain')
     expect(await rowText(ui, 'alpha')).toMatch(/▐[!\u00a0]+Needs you\u00a0▌/)
   })
-  // amend 2026-10-18: AC-08a, AC-45 -- an unknown argument changes nothing and names the forms.
-  test('AC-08a, AC-45 "/bridge" with an unknown argument (error naming the forms; nothing stored)', async ($, on) => {
+  // an unknown argument changes nothing and names the forms.
+  test('"/bridge" with an unknown argument (error naming the forms; nothing stored)', async ($, on) => {
     const { store } = await mountPane($, on, [S('mine')])
     const before = [...store.entries()]
-    expect(await sidebarCommand($, 'icons maybe')).toMatchObject({ text: `Unknown setting. Use: /bridge ${SIDEBAR_ARGS_HINT}` })
+    expect(await paneCommand($, 'icons maybe')).toMatchObject({ text: `Unknown setting. Use: /bridge ${PANE_ARGS_HINT}` })
     expect([...store.entries()]).toEqual(before)
   })
-  test('AC-08b With the setting off, a working session is a full Active card with the Working slot', async ($, on) => {
+  test('With the setting off, a working session is a full Active card with the Working slot', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine'), S('w', { status: 'busy', sinceMs: 5 * MIN, branch: 'main' })])
     const order = await orderOf(ui)
     expect(order.working).toBeUndefined()
@@ -445,7 +445,7 @@ describe('1b. working shelf setting', () => {
     expect(await iconKindOf(ui, 'w')).toBe('monogram')
     expect(await ui.find({ key: `spin:${refOf('w')}` })).toBeDefined()
   })
-  test('AC-08b, AC-20a The own full Active card animates its spinner on the selected fill', async ($, on) => {
+  test('The own full Active card animates its spinner on the selected fill', async ($, on) => {
     const { ui, clock, world } = await mountPane($, on, [S('mine', { status: 'busy' })], { blits: [] })
     expect((await orderOf(ui)).active).toEqual(refs('mine'))
     expect(await ui.find({ key: 'scene' })).toBeUndefined()
@@ -459,18 +459,18 @@ describe('1b. working shelf setting', () => {
 
 // ---------------------------------------------------------------- 3. Status slot
 describe('3. status slot', () => {
-  test('AC-20a Session is working (animated spinner)', async ($, on) => {
-    // phase 2: AC-20a -- the spinner animates by blit, so the frames are read from the blits it sends.
+  test('Session is working (animated spinner)', async ($, on) => {
+    // phase 2: the spinner animates by blit, so the frames are read from the blits it sends.
     const { ui, clock, world } = await mountPane($, on, [S('alpha', { status: 'busy' })], { blits: [] })
     expect(await ui.find({ key: `spin:${refOf('alpha')}` })).toBeDefined()
     for (let i = 0; i < 3; i++) { await clock.advance(250); await ui.advance(250) }
     expect(new Set(blitsOf(world, `spin:${refOf('alpha')}`).map(one => one.cells)).size).toBeGreaterThan(1)
   })
-  test('AC-20b Session is working ("Working" with muted elapsed time)', async ($, on) => {
+  test('Session is working ("Working" with muted elapsed time)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { status: 'busy', sinceMs: 5 * MIN })])
     expect(await rowText(ui, 'alpha')).toMatch(/Working 5m/)
   })
-  // amend 2026-10-19: live defect D4 -- the registry rewrites its status time while the word stays `busy`; the age still grows.
+  // the registry rewrites its status time while the word stays `busy`; the age still grows.
   test('D4 A working card whose registry rewrites its status time keeps counting from when it started working', async ($, on) => {
     const sessions = [S('mine', { status: 'busy', sinceMs: 0 })]
     const { ui, clock } = await mountPane($, on, sessions)
@@ -484,11 +484,11 @@ describe('3. status slot', () => {
     await clock.advance(5000); await ui.advance(5000)
     expect(await rowText(ui, 'mine')).not.toMatch(/Working/)
   })
-  test('AC-21 Session needs me (filled pill "Needs you" with bell)', async ($, on) => {
+  test('Session needs me (filled pill "Needs you" with bell)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { status: 'waiting' })])
     expect(await rowText(ui, 'alpha')).toMatch(/\ue0b6(?:\uf0f3|\u00a0)+Needs you\u00a0\ue0b4/)
   })
-  test('AC-22 Pane is shown with a needs-you card (bell shakes sideways once per 4 s without moving the word)', async ($, on) => {
+  test('Pane is shown with a needs-you card (bell shakes sideways once per 4 s without moving the word)', async ($, on) => {
     const { ui, clock } = await mountPane($, on, [S('alpha', { status: 'waiting' })])
     const seen: string[] = []
     for (let s = 0; s < 4; s++) { seen.push((await rowText(ui, 'alpha')).split('\n')[0]!); await clock.advance(200); await ui.advance(200) }
@@ -497,33 +497,33 @@ describe('3. status slot', () => {
     expect(new Set(seen.map(one => cellWidth(one))).size).toBe(1)
     expect(new Set(seen.map(one => one.indexOf('Needs you'))).size).toBe(1)
   })
-  // amend 2026-10-18: AC-23 -- the needs-you reason is not drawn; line 3 leads with the branch.
-  test('AC-23 Needs-you card line 3 (no reason; the branch at the left)', async ($, on) => {
+  // the needs-you reason is not drawn; line 3 leads with the branch.
+  test('Needs-you card line 3 (no reason; the branch at the left)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { status: 'waiting', reason: 'permission prompt', branch: 'main' })], {}, 70)
-    expect((await rowText(ui, 'alpha')).split('\n')[2]).toMatch(/^⎇ main\s*$/) // amend 2026-10-18: AC-23
-    expect(await rowText(ui, 'alpha')).not.toContain('permission prompt') // amend 2026-10-18: AC-23
+    expect((await rowText(ui, 'alpha')).split('\n')[2]).toMatch(/^⎇ main\s*$/)
+    expect(await rowText(ui, 'alpha')).not.toContain('permission prompt')
   })
-  // amend 2026-10-18: AC-24 -- with no reason, nothing stands in for it.
-  test('AC-24 Needs-you with no reason (no "input needed" fallback)', async ($, on) => {
+  // with no reason, nothing stands in for it.
+  test('Needs-you with no reason (no "input needed" fallback)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { status: 'waiting', branch: 'main' })], {}, 70)
-    expect((await rowText(ui, 'alpha')).split('\n')[2]).toMatch(/^⎇ main\s*$/) // amend 2026-10-18: AC-24
-    expect(await rowText(ui, 'alpha')).not.toContain('input needed') // amend 2026-10-18: AC-24
+    expect((await rowText(ui, 'alpha')).split('\n')[2]).toMatch(/^⎇ main\s*$/)
+    expect(await rowText(ui, 'alpha')).not.toContain('input needed')
   })
-  test('AC-25 Session finished unseen (gray "Done" pill with check)', async ($, on) => {
+  test('Session finished unseen (gray "Done" pill with check)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { status: 'completed' })])
     expect(await rowText(ui, 'alpha')).toMatch(/✓\s*Done|Done\s*✓/)
   })
-  test('AC-26 Idle session (age labels, rounding down)', async ($, on) => {
+  test('Idle session (age labels, rounding down)', async ($, on) => {
     const cases: [number, string][] = [[0, 'now'], [59_000, 'now'], [MIN, '1m'], [HOUR - 1000, '59m'], [HOUR, '1h'], [DAY - MIN, '23h'], [DAY, '1d'], [13 * DAY, '13d'], [14 * DAY, '2w'], [20 * DAY, '2w']]
     for (const [age, label] of cases) {
       const { ui } = await mountPane($, on, [S('alpha', { ageMs: age, sinceMs: age })])
-      // phase 2: AC-54a -- an idle card older than 6 h sits on the Inactive shelf, collapsed by default; open it to read the label.
+      // phase 2: an idle card older than 6 h sits on the Inactive shelf, collapsed by default; open it to read the label.
       if (age >= 6 * HOUR) await press(ui, 'shelf:inactive')
       const first = (await rowText(ui, 'alpha')).split('\n')[0]!
       expect(first.trimEnd().endsWith(label)).toBe(true)
     }
   })
-  test('AC-27 Session changed status 5 min ago, pane just opened (timer counts from status entry)', async ($, on) => {
+  test('Session changed status 5 min ago, pane just opened (timer counts from status entry)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('alpha', { status: 'busy', sinceMs: 5 * MIN, ageMs: 0 })])
     const text = await rowText(ui, 'alpha')
     expect(text).toMatch(/5m/)
@@ -534,7 +534,7 @@ describe('3. status slot', () => {
 // ---------------------------------------------------------------- 4. Selected card and child rows
 describe('4. selected card and child rows', () => {
   const OWN = (extra: Omit<Sess, 'name'> = {}) => S('own', extra)
-  test('AC-28b selected fill is pane-wide, content is inset one cell, and half-row edges frame the card', async ($, on) => {
+  test('selected fill is pane-wide, content is inset one cell, and half-row edges frame the card', async ($, on) => {
     const fill = snapToRasterGrid(PALETTES.dark.fill)
     for (const [cols, glyphs] of [[44, 'plain'], [44, 'nerd'], [12, 'plain'], [12, 'nerd']] as const) {
       const store = new Map<string, unknown>([['setting:glyphs', glyphs]])
@@ -563,7 +563,7 @@ describe('4. selected card and child rows', () => {
       if (cols >= 30) expect((await empty.ui.find({ key: 'scene-row' }))?.props.width).toBe(cols)
     }
   })
-  test('AC-28c unselected full cards are three rows with one blank row between; the selected edges take the gap rows', async ($, on) => {
+  test('unselected full cards are three rows with one blank row between; the selected edges take the gap rows', async ($, on) => {
     // own (selected) first: ▄ above it with no gap row; the ▀ row stands in for the gap before the next card.
     const first = await mountPane($, on, [OWN({ ageMs: 0 }), S('other', { ageMs: MIN }), S('third', { ageMs: 2 * MIN })])
     const marginOf = async (ui: any, id: string) => (await ui.find({ key: `card:${refOf(id)}` }))?.props.marginTop ?? 0
@@ -583,7 +583,7 @@ describe('4. selected card and child rows', () => {
     expect(at(`row:${refOf('own')}`)).toBeLessThan(at(`card-bottom:${refOf('own')}`))
     expect(at(`card-bottom:${refOf('own')}`)).toBeLessThan(at(`row:${refOf('third')}`))
   })
-  test('AC-28c with child rows the ▀ row comes first, the children follow it unfilled, and the next card keeps its gap', async ($, on) => {
+  test('with child rows the ▀ row comes first, the children follow it unfilled, and the next card keeps its gap', async ($, on) => {
     const { ui } = await mountPane($, on, [OWN(), S('other')], { agents: [AGENT('a1', 'running', 'Scan')] })
     const own = refOf('own')
     const order = (await ui.findAll({})).map((one: any) => one.key).filter(Boolean)
@@ -593,7 +593,7 @@ describe('4. selected card and child rows', () => {
     expect((await ui.find({ key: 'child:a1' }))?.props.backgroundColor).toBeUndefined()
     expect((await ui.find({ key: `card:${refOf('other')}` }))?.props.marginTop).toBe(1)
   })
-  // amend 2026-10-20: guide review F7 -- the first frame of a child-row spinner matches its blits: the row background, not the card fill.
+  // the first frame of a child-row spinner matches its blits: the row background, not the card fill.
   test('F7 a Working child row under the selected own card draws its first spinner frame off the selected fill', async ($, on) => {
     const { ui } = await mountPane($, on, [OWN()], { agents: [AGENT('a1', 'running', 'Scan')] })
     const spin = await ui.find({ key: 'spin:a1' })
@@ -603,27 +603,27 @@ describe('4. selected card and child rows', () => {
     expect(onFill.has(spin!.props.cells)).toBe(false)
     expect(offFill.has(spin!.props.cells)).toBe(true)
   })
-  test('AC-28b compact Working cards keep their one-line form', async ($, on) => {
+  test('compact Working cards keep their one-line form', async ($, on) => {
     const { ui } = await mountPane($, on, [OWN({ status: 'busy' })], { store: new Map<string, unknown>([SHELF_ON]) })
     const own = refOf('own')
     expect(await ui.find({ key: `card-top:${own}` })).toBeUndefined()
     expect(await ui.find({ key: `card-bottom:${own}` })).toBeUndefined()
     expect((await linesById(ui, own)).split('\n')).toHaveLength(1)
   })
-  test('AC-30 Own session has subagents (child rows indented behind a vertical rule)', async ($, on) => {
+  test('Own session has subagents (child rows indented behind a vertical rule)', async ($, on) => {
     const { ui } = await mountPane($, on, [OWN()], { agents: [AGENT('a1', 'running', 'Scan'), AGENT('a2', 'running', 'Read')] })
     const kids = await ui.findAll({ key: 'view:a1' })
     expect(kids[0]?.text).toMatch(/^\s+[│┃|]/)
   })
-  test('AC-31a Reading a child row (dot and description)', async ($, on) => {
+  test('Reading a child row (dot and description)', async ($, on) => {
     const { ui } = await mountPane($, on, [OWN()], { agents: [AGENT('a1', 'running', 'Scan repo')] })
     expect((await ui.find({ key: 'view:a1' }))?.text).toMatch(/●.*Scan repo/)
   })
-  test('AC-31b Reading a child row (card status word and time in state)', async ($, on) => {
+  test('Reading a child row (card status word and time in state)', async ($, on) => {
     const { ui } = await mountPane($, on, [OWN()], { agents: [AGENT('a1', 'running', 'Scan', { statusSince: TUE_10 - 2 * MIN })] })
     expect((await ui.find({ key: 'child:a1' }))?.text).toMatch(/Working.*2m/)
   })
-  test('AC-32 Reading states (the card status words and look)', async ($, on) => {
+  test('Reading states (the card status words and look)', async ($, on) => {
     const states: [string, string][] = [['running', 'Working'], ['waiting', 'Working'], ['completed', 'Done'], ['failed', 'Failed'], ['killed', '']]
     const { ui } = await mountPane($, on, [OWN()], { agents: states.map(([s], i) => AGENT(`k${i}`, s, `d${i}`)) })
     const text = (await Promise.all(states.map((_, i) => ui.find({ key: `child:k${i}` })))).map(row => row?.text ?? '')
@@ -634,16 +634,16 @@ describe('4. selected card and child rows', () => {
     expect(text[4]).not.toMatch(/Working|Done|Failed/)
     expect((await ui.find({ key: 'child:k1' }))?.props.backgroundColor).toBeFalsy()
   })
-  test('AC-34a Own card line 3 (one dot per subagent, up to 3)', async ($, on) => {
+  test('Own card line 3 (one dot per subagent, up to 3)', async ($, on) => {
     const { ui } = await mountPane($, on, [OWN()], { agents: [AGENT('a1', 'running', 'A'), AGENT('a2', 'running', 'B')] }, 70)
     expect((await rowText(ui, 'own')).split('\n')[2]).toMatch(/●●(?!●)/)
   })
-  test('AC-34b Own card line 3 (dots are followed by the total count)', async ($, on) => {
+  test('Own card line 3 (dots are followed by the total count)', async ($, on) => {
     const agents = Array.from({ length: 7 }, (_, i) => AGENT(`a${i}`, 'running', `d${i}`))
     const { ui } = await mountPane($, on, [OWN()], { agents }, 70)
     expect((await rowText(ui, 'own')).split('\n')[2]).toContain('●●● 7')
   })
-  test('AC-35 Own session with 8 agents (max 5 rows plus "+3 more")', async ($, on) => {
+  test('Own session with 8 agents (max 5 rows plus "+3 more")', async ($, on) => {
     for (const [count, more] of [[5, null], [6, '+1 more'], [8, '+3 more']] as const) {
       const agents = Array.from({ length: count }, (_, i) => AGENT(`a${i}`, 'running', `d${i}`))
       const { ui } = await mountPane($, on, [OWN()], { agents })
@@ -652,54 +652,54 @@ describe('4. selected card and child rows', () => {
       else expect(await hasText(ui, /more/)).toBe(false)
     }
   })
-  test('AC-36 Other session cards (no child rows, no badge)', async ($, on) => {
+  test('Other session cards (no child rows, no badge)', async ($, on) => {
     const { ui } = await mountPane($, on, [OWN(), S('other')], { agents: [AGENT('a1', 'running', 'Scan')] })
     expect((await rowText(ui, 'other')).split('\n')[2] ?? '').not.toMatch(/●/)
     expect((await ui.findAll({})).filter((one: any) => (one.key ?? '').startsWith('view:')).length).toBe(1)
   })
 })
-todo('AC-28 Owner finds own card (filled background on all its lines) -- layer G/U: needs real colour capture and theme luminance table')
-todo('AC-29 Other cards (no background fill) -- layer G: live-Ghostty capture')
+todo('A person finds own card (filled background on all its lines) -- layer G/U: needs real colour capture and theme luminance table')
+todo('Other cards (no background fill) -- layer G: live-Ghostty capture')
 
 // ---------------------------------------------------------------- 5. Colours
 // phase 2: Known Gap blocker 1 -- the colour rows assert the palette's hex values (core/palette.ts PALETTES).
 describe('5. colours', () => {
   const textColorOf = async (ui: Ui, text: string | RegExp) =>
     (await ui.findAll({ type: 'Text' })).find((one: any) => (typeof text === 'string' ? one.text === text : text.test(one.text)))?.props.color as string | undefined
-  // amend 2026-10-18: AC-10 -- the project colour is on the monogram; the project name is muted.
-  test('AC-10 Project colour (stable per project on the monogram, the same in every pane and after a restart)', async ($, on) => {
+  // the project colour is on the monogram; the project name is muted.
+  test('Project colour (stable per project on the monogram, the same in every pane and after a restart)', async ($, on) => {
     const sessions = [S('a', { cwd: '/p/alpha' }), S('b', { cwd: '/p/beta' })]
-    const monoColorOf = async (ui: Ui, letter: string) => (await ui.findAll({ type: 'Text' })).find((one: any) => one.text === `${letter} `)?.props.backgroundColor as string | undefined // amend 2026-10-18: AC-10
+    const monoColorOf = async (ui: Ui, letter: string) => (await ui.findAll({ type: 'Text' })).find((one: any) => one.text === `${letter} `)?.props.backgroundColor as string | undefined
     const first = await mountPane($, on, sessions, { selfName: 'zz' })
     const want = projectColorsOf(['alpha', 'beta'], 'dark')
-    expect(await monoColorOf(first.ui, 'A')).toBe(want.get('alpha')) // amend 2026-10-18: AC-10
-    expect(await monoColorOf(first.ui, 'B')).toBe(want.get('beta')) // amend 2026-10-18: AC-10
+    expect(await monoColorOf(first.ui, 'A')).toBe(want.get('alpha'))
+    expect(await monoColorOf(first.ui, 'B')).toBe(want.get('beta'))
     expect(want.get('alpha')).not.toBe(want.get('beta'))
-    for (const name of [/^alpha$/, /^beta$/]) { // amend 2026-10-18: AC-10 -- the name is muted, never coloured
+    for (const name of [/^alpha$/, /^beta$/]) { // the name is muted, never coloured
       const text = (await first.ui.findAll({ type: 'Text' })).find((one: any) => name.test(one.text))
       expect(text?.props.dimColor).toBe(true)
       expect(text?.props.color).toBeUndefined()
     }
     const second = await mountPane($, on, [...sessions].reverse(), { selfName: 'zz' })
-    expect(await monoColorOf(second.ui, 'A')).toBe(want.get('alpha')) // amend 2026-10-18: AC-10
+    expect(await monoColorOf(second.ui, 'A')).toBe(want.get('alpha'))
   })
-  // amend 2026-10-18: AC-37 -- the reason is no longer drawn; the needs-you pill carries the red.
-  test('AC-37 Status hues (the drawn Working and needs-you pill colours are the token hex values)', async ($, on) => {
+  // the reason is no longer drawn; the needs-you pill carries the red.
+  test('Status hues (the drawn Working and needs-you pill colours are the token hex values)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('w', { status: 'busy' }), S('n', { status: 'waiting', reason: 'asks' })], { selfName: 'zz' }, 70)
     expect(await textColorOf(ui, ' Working')).toBe(PALETTES.dark.text.yellow)
-    expect(await textColorOf(ui, /Needs you/)).toBe(PALETTES.dark.pill.red.fg) // amend 2026-10-18: AC-37
+    expect(await textColorOf(ui, /Needs you/)).toBe(PALETTES.dark.pill.red.fg)
     expect(PALETTES.dark.text.yellow).toMatch(/^#[0-9a-f]{6}$/)
   })
-  test('AC-38a Dark Claude theme (dark set)', async ($, on) => {
+  test('Dark Claude theme (dark set)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('w', { status: 'busy' })], { selfName: 'zz', theme: 'dark' })
     expect(await textColorOf(ui, ' Working')).toBe(PALETTES.dark.text.yellow)
   })
-  test('AC-38b Light Claude theme (light set)', async ($, on) => {
+  test('Light Claude theme (light set)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('w', { status: 'busy' })], { selfName: 'zz', theme: 'light-daltonized' })
     expect(await textColorOf(ui, ' Working')).toBe(PALETTES.light.text.yellow)
     expect(PALETTES.light.text.yellow).not.toBe(PALETTES.dark.text.yellow)
   })
-  test('AC-38c Theme unreadable (dark; the Theme setting overrides)', async ($, on) => {
+  test('Theme unreadable (dark; the Theme setting overrides)', async ($, on) => {
     const plain = await mountPane($, on, [S('w', { status: 'busy' })], { selfName: 'zz' })
     expect(await textColorOf(plain.ui, ' Working')).toBe(PALETTES.dark.text.yellow)
     const store = new Map<string, unknown>([['setting:theme', 'light']])
@@ -707,20 +707,20 @@ describe('5. colours', () => {
     expect(await textColorOf(set.ui, ' Working')).toBe(PALETTES.light.text.yellow)
     expect(themeModeOf(undefined, 'auto')).toBe('dark')
   })
-  // amend 2026-10-18: AC-38c -- the Theme setting is `/bridge theme auto|light|dark`, not a footer row.
-  test('AC-38c "/bridge theme light|dark|auto" (stores setting:theme and redraws in that set)', async ($, on) => {
+  // the Theme setting is `/bridge theme auto|light|dark`, not a footer row.
+  test('"/bridge theme light|dark|auto" (stores setting:theme and redraws in that set)', async ($, on) => {
     const { ui, store } = await mountPane($, on, [S('w', { status: 'busy' })], { selfName: 'zz', theme: 'dark' })
     expect(await ui.find({ key: 'setting:theme' })).toBeUndefined()
     expect(await textColorOf(ui, ' Working')).toBe(PALETTES.dark.text.yellow)
-    expect(await sidebarCommand($, 'theme light')).toMatchObject({ text: 'Theme: light' })
+    expect(await paneCommand($, 'theme light')).toMatchObject({ text: 'Theme: light' })
     expect(store.get('setting:theme')).toBe('light')
     expect(await textColorOf(ui, ' Working')).toBe(PALETTES.light.text.yellow)
-    expect(await sidebarCommand($, 'THEME Auto')).toMatchObject({ text: 'Theme: auto' })
+    expect(await paneCommand($, 'THEME Auto')).toMatchObject({ text: 'Theme: auto' })
     expect(store.get('setting:theme')).toBe('auto')
     expect(await textColorOf(ui, ' Working')).toBe(PALETTES.dark.text.yellow)
   })
   // The selected card's half-row edges (runs of ▄ or ▀) are fill-coloured decoration, not text, so they are skipped below.
-  test('AC-39 Contrast (every drawn colour reaches 4.5:1 on the pane background and the own-card fill)', async ($, on) => {
+  test('Contrast (every drawn colour reaches 4.5:1 on the pane background and the own-card fill)', async ($, on) => {
     for (const theme of ['dark', 'light'] as const) {
       const shade = PALETTES[theme]
       const { ui } = await mountPane($, on, [S('mine', { branch: 'main', ctx: 90 }), S('w', { status: 'busy', cwd: '/p/zeta' }), S('n', { status: 'waiting', cwd: '/p/kappa' })], { theme, agents: [AGENT('a1', 'running', 'A'), AGENT('a2', 'waiting', 'B')] }, 70)
@@ -733,16 +733,16 @@ describe('5. colours', () => {
       }
     }
   })
-  test('AC-40 Plain and muted text (no colour on plain text; muted text is dimColor only)', async ($, on) => {
-    // amend 2026-10-18: AC-11a -- an Idle title is muted, so the plain title is read from a needs-you card.
+  test('Plain and muted text (no colour on plain text; muted text is dimColor only)', async ($, on) => {
+    // an Idle title is muted, so the plain title is read from a needs-you card.
     const { ui } = await mountPane($, on, [S('alpha', { status: 'waiting', title: 'Plain title', branch: 'main' }), S('beta', { title: 'Muted title', cwd: '/q' })], { selfName: 'zz' })
     const title = (await ui.findAll({ type: 'Text' })).find((one: any) => one.text === 'Plain title')
     expect(title).toBeDefined()
     expect(title?.props.color).toBeUndefined()
     expect(title?.props.dimColor).not.toBe(true)
-    const muted = (await ui.findAll({ type: 'Text' })).find((one: any) => one.text === 'Muted title') // amend 2026-10-18: AC-11a
-    expect(muted?.props.dimColor).toBe(true) // amend 2026-10-18: AC-11a
-    expect(muted?.props.color).toBeUndefined() // amend 2026-10-18: AC-11a
+    const muted = (await ui.findAll({ type: 'Text' })).find((one: any) => one.text === 'Muted title')
+    expect(muted?.props.dimColor).toBe(true)
+    expect(muted?.props.color).toBeUndefined()
     const branch = (await ui.findAll({ type: 'Text' })).find((one: any) => one.text === '⎇ main')
     expect(branch?.props.dimColor).toBe(true)
     expect(branch?.props.color).toBeUndefined()
@@ -750,9 +750,9 @@ describe('5. colours', () => {
 })
 
 // ---------------------------------------------------------------- 6. Project icons and empty states
-// amend 2026-10-18: AC-41 to AC-46 -- the per-card creature became the project icon.
+// the per-card creature became the project icon.
 describe('6. project icons and empty states', () => {
-  test('AC-41 Owner sees full cards (icon 2x1, one space, the project; lines 2 and 3 at the left edge)', async ($, on) => {
+  test('A person sees full cards (icon 2x1, one space, the project; lines 2 and 3 at the left edge)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine'), S('alpha', { title: 'Fix it' })])
     const lines = (await rowText(ui, 'alpha')).split('\n')
     expect(lines.length).toBe(3)
@@ -763,7 +763,7 @@ describe('6. project icons and empty states', () => {
     const mono = await ui.find({ key: `monogram:${refOf('alpha')}` })
     expect(mono?.text).toBe('A ')
   })
-  test('AC-42 The project picture, found from the candidate files, drawn where the terminal draws pictures', async ($, on) => {
+  test('The project picture, found from the candidate files, drawn where the terminal draws pictures', async ($, on) => {
     const world = withFiles({ '/p/alpha/favicon.png': 1000, '/p/alpha/icon.svg': 2000 })
     const { ui } = await mountPane($, on, [S('mine'), S('alpha')], world)
     const image = await ui.find({ key: `icon:${refOf('alpha')}` })
@@ -774,7 +774,7 @@ describe('6. project icons and empty states', () => {
     // The Image has no text in the harness: line 1 reads its gap, then the project.
     expect((await rowText(ui, 'alpha')).split('\n')[0]).toMatch(/^ alpha/)
   })
-  test('AC-42 A cached picture is used as is, and a project is looked up at most once per 10 minutes', async ($, on) => {
+  test('A cached picture is used as is, and a project is looked up at most once per 10 minutes', async ($, on) => {
     const world = withFiles({ '/p/alpha/favicon.png': 1000 })
     const { ui, clock } = await mountPane($, on, [S('alpha')], world)
     const file = (await ui.find({ key: `icon:${refOf('alpha')}` }))?.props.source.file as string
@@ -785,8 +785,8 @@ describe('6. project icons and empty states', () => {
     expect((await again.ui.find({ key: `icon:${refOf('alpha')}` }))?.props.source.file).toBe(file)
     expect(world.converts!.length).toBe(1)
   })
-  // amend 2026-10-18: AC-43 -- the monogram carries the project colour; the project name is muted.
-  test('AC-43 No picture, or a terminal without pictures: the monogram on the project colour', async ($, on) => {
+  // the monogram carries the project colour; the project name is muted.
+  test('No picture, or a terminal without pictures: the monogram on the project colour', async ($, on) => {
     const none = await mountPane($, on, [S('mine'), S('plugin-tasks')], withFiles({}))
     const mono = await none.ui.find({ key: `monogram:${refOf('plugin-tasks')}` })
     expect(mono?.text).toBe('T ')
@@ -794,35 +794,35 @@ describe('6. project icons and empty states', () => {
     expect(letter?.props.bold).toBe(true)
     expect(letter?.props.backgroundColor).toMatch(/^#[0-9a-f]{6}$/)
     const project = (await none.ui.findAll({ type: 'Text' })).find((one: any) => one.text.startsWith('plugin-tasks'))
-    expect(letter?.props.backgroundColor).toBe(projectColorsOf(['plugin-tasks'], 'dark').get('plugin-tasks')) // amend 2026-10-18: AC-43
-    expect(project?.props.dimColor).toBe(true) // amend 2026-10-18: AC-43
-    expect(project?.props.color).toBeUndefined() // amend 2026-10-18: AC-43
+    expect(letter?.props.backgroundColor).toBe(projectColorsOf(['plugin-tasks'], 'dark').get('plugin-tasks'))
+    expect(project?.props.dimColor).toBe(true)
+    expect(project?.props.color).toBeUndefined()
     const plain = await mountPane($, on, [S('mine'), S('alpha')], withFiles({ '/p/alpha/favicon.png': 1000 }, { term: 'unknown' }))
     expect(await iconKindOf(plain.ui, 'alpha')).toBe('monogram')
   })
-  test('AC-44 Working shelf one-liners (the project icon before the project)', async ($, on) => {
-    const { ui } = await mountPane($, on, [S('mine'), S('w', { status: 'busy' })], shelfOn()) // amend 2026-10-18: AC-08a
+  test('Working shelf one-liners (the project icon before the project)', async ($, on) => {
+    const { ui } = await mountPane($, on, [S('mine'), S('w', { status: 'busy' })], shelfOn())
     const line = await rowText(ui, 'w')
     expect(line.split('\n').length).toBe(1)
     expect(line).toMatch(/^W  w /)
     expect(cellWidth(line)).toBe(41) // the one-cell spinner Raster has no text in the harness
     expect(await iconKindOf(ui, 'w')).toBe('monogram')
   })
-  // amend 2026-10-18: AC-45 -- the setting is `/bridge icons on|off`; the pane has no settings rows.
-  test('AC-45 "/bridge icons on|off" (project icons, default on, persisted under setting:icons)', async ($, on) => {
+  // the setting is `/bridge icons on|off`; the pane has no settings rows.
+  test('"/bridge icons on|off" (project icons, default on, persisted under setting:icons)', async ($, on) => {
     const { ui, store } = await mountPane($, on, [S('mine'), S('alpha')])
-    expect(await hasText(ui, /Show project icons/)).toBe(false) // amend 2026-10-18: AC-45
+    expect(await hasText(ui, /Show project icons/)).toBe(false)
     expect(await iconKindOf(ui, 'alpha')).toBe('monogram')
-    expect(await sidebarCommand($, 'icons off')).toMatchObject({ text: 'Project icons: off' }) // amend 2026-10-18: AC-45
+    expect(await paneCommand($, 'icons off')).toMatchObject({ text: 'Project icons: off' })
     expect(store.get('setting:icons')).toBe(false)
     expect(await iconKindOf(ui, 'alpha')).toBe('none')
     const restarted = await mountPane($, on, [S('mine'), S('alpha')], { store })
     expect(await iconKindOf(restarted.ui, 'alpha')).toBe('none')
-    expect(await sidebarCommand($, 'Icons ON')).toMatchObject({ text: 'Project icons: on' }) // amend 2026-10-18: AC-45
+    expect(await paneCommand($, 'Icons ON')).toMatchObject({ text: 'Project icons: on' })
     expect(store.get('setting:icons')).toBe(true)
     expect(await iconKindOf(restarted.ui, 'alpha')).toBe('monogram')
   })
-  test('AC-46 Owner turns it off (no icon; the project starts at the left edge)', async ($, on) => {
+  test('A person turns it off (no icon; the project starts at the left edge)', async ($, on) => {
     const store = new Map<string, unknown>([['setting:icons', false]])
     const { ui } = await mountPane($, on, [S('mine'), S('alpha', { title: 'abcdefghij'.repeat(5) })], { ...withFiles({ '/p/alpha/favicon.png': 1000 }), store })
     const lines = (await rowText(ui, 'alpha')).split('\n')
@@ -831,14 +831,14 @@ describe('6. project icons and empty states', () => {
     expect(await iconKindOf(ui, 'alpha')).toBe('none')
     expect([...lines[0]!].length).toBe(42)
   })
-  test('AC-11a A Done card (finished, not yet seen) has a bold title', async ($, on) => {
+  test('A Done card (finished, not yet seen) has a bold title', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine'), S('d', { status: 'completed', title: 'Shipped it' }), S('i', { title: 'Resting' })])
     const texts = await ui.findAll({ type: 'Text' })
     expect(texts.find((one: any) => one.text.startsWith('Shipped it'))?.props.bold).toBe(true)
     expect(texts.find((one: any) => one.text.startsWith('Resting'))?.props.bold).not.toBe(true)
   })
-  // amend 2026-10-18: AC-11a -- bold on a Done, woken or own card; dim on an Idle card; plain on Working and Needs you.
-  test('AC-11a Title weights (bold Done, woken and own; dim Idle; plain Working and Needs you)', async ($, on) => {
+  // bold on a Done, woken or own card; dim on an Idle card; plain on Working and Needs you.
+  test('Title weights (bold Done, woken and own; dim Idle; plain Working and Needs you)', async ($, on) => {
     const store = new Map<string, unknown>([[`pref:${idOf('k')}`, { snoozedUntil: TUE_10 - MIN }]])
     const sessions = [
       S('mine', { title: 'Own title' }), S('d', { status: 'completed', title: 'Done title', cwd: '/p/d' }), S('k', { title: 'Woken title', cwd: '/p/k' }),
@@ -859,8 +859,8 @@ describe('6. project icons and empty states', () => {
       expect(titleOf(title)?.dimColor).not.toBe(true)
     }
   })
-  // amend 2026-10-19: AC-13a -- WS-84 gaps AC-G3 to AC-G5: background tasks are live rows under the own card, not a `⟳ n` count.
-  test('AC-13a The own card lists its background tasks as rows and shows Background; no source, no rows', async ($, on) => {
+  // background tasks are live rows under the own card, not a `⟳ n` count.
+  test('The own card lists its background tasks as rows and shows Background; no source, no rows', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine', { branch: 'feat' })])
     expect(await rowText(ui, 'mine')).not.toContain('Check?')
     await $.classic.Stop({ stop_hook_active: false } as never)
@@ -878,7 +878,7 @@ describe('6. project icons and empty states', () => {
     expect(await ui.find({ key: 'task:b1' })).toBeUndefined()
     expect(await rowText(ui, 'mine')).not.toMatch(/Background|Check\?/)
   })
-  // amend 2026-10-19: live defect D1 -- a managed plugin can send classic.Stop past every installed plugin, so the
+  // a managed plugin can send classic.Stop past every installed plugin, so the
   // own background list comes from the tool calls that start a task and the notifications that end it.
   test('D1 Background work is tracked with no stop hook: Background once the turn ends while the registry still says busy', async ($, on) => {
     on('turn.start', ($s, e) => ({ turnId: (e as { turnId: string }).turnId }) as never)
@@ -907,9 +907,9 @@ describe('6. project icons and empty states', () => {
     expect(await ui.find({ key: 'task:bavp7cqri' })).toBeUndefined()
     expect(await rowText(ui, 'mine')).not.toMatch(/Background|Check\?/)
   })
-  // amend 2026-10-19: live follow-up -- a managed plugin sends the classic Stop, StopFailure and UserPromptSubmit
+  // a managed plugin sends the classic Stop, StopFailure and UserPromptSubmit
   // hooks past every installed plugin, so Failed comes from the main loop's turn end and the person's prompt.
-  // amend 2026-10-19: review -- the tracker and a Stop snapshot together, TaskStop, /clear and an unseen end.
+  // the tracker and a Stop snapshot together, TaskStop, /clear and an unseen end.
   const trackerHooks = (on: On) => {
     on('turn.start', ($s, e) => ({ turnId: (e as { turnId: string }).turnId }) as never)
     on('turn.complete', () => ({ text: '' }) as never)
@@ -981,7 +981,7 @@ describe('6. project icons and empty states', () => {
     expect(await ui.find({ key: 'task:b1' })).toBeUndefined()
     expect(await rowText(ui, 'mine')).not.toMatch(/Background|Check\?/)
   })
-  test('AC-G1 Failed with no classic hook: an API-error turn end marks it; an answered turn or the next prompt clears it', async ($, on) => {
+  test('Failed with no classic hook: an API-error turn end marks it; an answered turn or the next prompt clears it', async ($, on) => {
     on('turn.start', ($s, e) => ({ turnId: (e as { turnId: string }).turnId }) as never)
     on('turn.complete', () => ({ text: '' }) as never)
     on('prompt.submit', ($s, e) => ({ text: (e as { text: string }).text }) as never)
@@ -1007,7 +1007,7 @@ describe('6. project icons and empty states', () => {
     await refresh()
     expect(await rowText(ui, 'mine')).not.toContain('Failed')
   })
-  test('AC-G1 An API failure in the own session shows Failed until a later turn stops well', async ($, on) => {
+  test('An API failure in the own session shows Failed until a later turn stops well', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine', { branch: 'feat' })])
     await $.classic.StopFailure({ error: 'server_error' } as never)
     await ui.advance(10)
@@ -1015,7 +1015,7 @@ describe('6. project icons and empty states', () => {
     await $.classic.Stop({ stop_hook_active: false } as never)
     await ui.advance(10)
     expect(await rowText(ui, 'mine')).not.toContain('Failed')
-    // amend 2026-10-19: review P2-b -- an interrupted turn has no Stop; the next prompt clears Failed.
+    // an interrupted turn has no Stop; the next prompt clears Failed.
     await $.classic.StopFailure({ error: 'server_error' } as never)
     await ui.advance(10)
     expect(await rowText(ui, 'mine')).toContain('✕ Failed')
@@ -1023,7 +1023,7 @@ describe('6. project icons and empty states', () => {
     await ui.advance(10)
     expect(await rowText(ui, 'mine')).not.toContain('Failed')
   })
-  // amend 2026-10-19: review P3-3, P3-4 -- the claim, a put-away card and a card that appears later are each tested.
+  // the claim, a put-away card and a card that appears later are each tested.
   const chimes = (on: On) => {
     const played: unknown[] = []
     on('audio.play', ($p, e) => {
@@ -1035,7 +1035,7 @@ describe('6. project icons and empty states', () => {
   const refreshTwice = async (clock: { advance: (ms: number) => Promise<unknown> }, ui: Ui) => {
     await clock.advance(6000); await ui.advance(6000)
   }
-  test('AC-G6 A card that starts to need the Owner chimes once and claims it; the first refresh and sound off are silent', async ($, on) => {
+  test('A card that starts to need the person chimes once and claims it; the first refresh and sound off are silent', async ($, on) => {
     const played = chimes(on)
     const sessions = [S('mine'), S('other', { status: 'waiting' }), S('busy', { status: 'busy' })]
     const { clock, ui, store } = await mountPane($, on, sessions)
@@ -1056,7 +1056,7 @@ describe('6. project icons and empty states', () => {
     await refreshTwice(clock, ui)
     expect(played).toHaveLength(1)
   })
-  test('AC-G6 A change another session already claimed is silent', async ($, on) => {
+  test('A change another session already claimed is silent', async ($, on) => {
     const played = chimes(on)
     const store = new Map<string, unknown>([[`chime:${idOf('busy')}`, `needs-you@${TUE_10 + 1000}`]])
     const sessions = [S('mine'), S('busy', { status: 'busy' })]
@@ -1066,7 +1066,7 @@ describe('6. project icons and empty states', () => {
     await refreshTwice(clock, ui)
     expect(played).toEqual([])
   })
-  test('AC-G6 A parked card that starts to need the Owner is silent', async ($, on) => {
+  test('A parked card that starts to need the person is silent', async ($, on) => {
     const played = chimes(on)
     // Idle while parked: a working session would already have returned from Parked.
     const store = new Map<string, unknown>([[`pref:${idOf('busy')}`, { isParked: true, parkedAt: TUE_10 - HOUR }]])
@@ -1077,7 +1077,7 @@ describe('6. project icons and empty states', () => {
     await refreshTwice(clock, ui)
     expect(played).toEqual([])
   })
-  test('AC-G6 A card that first appears after the first refresh already needing the Owner chimes', async ($, on) => {
+  test('A card that first appears after the first refresh already needing the person chimes', async ($, on) => {
     const played = chimes(on)
     const sessions = [S('mine')]
     const { clock, ui } = await mountPane($, on, sessions)
@@ -1086,8 +1086,8 @@ describe('6. project icons and empty states', () => {
     await refreshTwice(clock, ui)
     expect(played).toHaveLength(1)
   })
-  // amend 2026-10-19: review re-check -- a card missing for one refresh keeps its status; an empty list keeps every claim.
-  test('AC-G6 A needs-you card missing for one refresh and back again is silent', async ($, on) => {
+  // a card missing for one refresh keeps its status; an empty list keeps every claim.
+  test('A needs-you card missing for one refresh and back again is silent', async ($, on) => {
     const played = chimes(on)
     const sessions = [S('mine'), S('waits', { status: 'waiting' })]
     const { clock, ui } = await mountPane($, on, sessions)
@@ -1098,25 +1098,25 @@ describe('6. project icons and empty states', () => {
     await refreshTwice(clock, ui)
     expect(played).toEqual([])
   })
-  test('AC-G6 An empty session list prunes no chime claim', async ($, on) => {
+  test('An empty session list prunes no chime claim', async ($, on) => {
     const store = new Map<string, unknown>([['chime:gone', 'needs-you@1']])
     const { clock, ui } = await mountPane($, on, [], { store })
     await refreshTwice(clock, ui)
     expect(store.get('chime:gone')).toBe('needs-you@1')
   })
-  test('AC-G6 A live session list prunes the claims of ended sessions', async ($, on) => {
+  test('A live session list prunes the claims of ended sessions', async ($, on) => {
     const store = new Map<string, unknown>([['chime:gone', 'needs-you@1'], [`chime:${idOf('mine')}`, 'needs-you@2']])
     const { clock, ui } = await mountPane($, on, [S('mine')], { store })
     await refreshTwice(clock, ui)
     expect([store.has('chime:gone'), store.has(`chime:${idOf('mine')}`)]).toEqual([false, true])
   })
-  test('AC-47a Active empty and none working (hills scene with 3 plants and sun)', async ($, on) => {
+  test('Active empty and none working (hills scene with 3 plants and sun)', async ($, on) => {
     const { ui } = await mountPane($, on, [])
     expect(await ui.find({ key: 'scene' })).toBeDefined()
   })
-  test('AC-47b Active empty and none working (caption centered)', async ($, on) => {
+  test('Active empty and none working (caption centered)', async ($, on) => {
     const { ui } = await mountPane($, on, [])
-    // phase 2: AC-47b -- the caption is its own keyed Text.
+    // phase 2: the caption is its own keyed Text.
     const caption = await ui.find({ key: 'scene-caption', text: 'All clear. Time to touch some grass.' })
     expect(caption).toBeDefined()
     const line = caption!.text as string
@@ -1124,21 +1124,21 @@ describe('6. project icons and empty states', () => {
     const right = 42 - line.trimEnd().length
     expect(Math.abs(left - right)).toBeLessThanOrEqual(1)
   })
-  test('AC-47c Active empty and none working (other shelves still draw)', async ($, on) => {
+  test('Active empty and none working (other shelves still draw)', async ($, on) => {
     const store = new Map<string, unknown>([[`pref:${idOf('z')}`, { snoozedUntil: TUE_10 + 5 * HOUR }]])
     const { ui } = await mountPane($, on, [S('z')], { store })
     expect(await ui.find({ key: 'shelf:snoozed' })).toBeDefined()
   })
-  test('AC-48 Active empty, one working (working scene plus one caption from the list)', async ($, on) => {
-    const { ui } = await mountPane($, on, [S('w', { status: 'busy' })], { selfName: 'zz', ...shelfOn() }) // amend 2026-10-18: AC-08a
+  test('Active empty, one working (working scene plus one caption from the list)', async ($, on) => {
+    const { ui } = await mountPane($, on, [S('w', { status: 'busy' })], { selfName: 'zz', ...shelfOn() })
     expect(await ui.find({ key: 'scene' })).toBeDefined()
     expect(await hasText(ui, 'All clear. Time to touch some grass.')).toBe(false)
     expect(((await ui.find({ key: 'scene-caption' }))?.text ?? '').length).toBeGreaterThan(0)
   })
-  test('AC-49 Scene appears again (caption differs from the previous time)', async ($, on) => {
+  test('Scene appears again (caption differs from the previous time)', async ($, on) => {
     let previous = ''
-    // phase 2: AC-49 -- the previous caption is the stored one, so the restarts share one store.
-    const store = new Map<string, unknown>([SHELF_ON]) // amend 2026-10-18: AC-08a
+    // phase 2: the previous caption is the stored one, so the restarts share one store.
+    const store = new Map<string, unknown>([SHELF_ON])
     for (let i = 0; i < 20; i++) {
       const { ui } = await mountPane($, on, [S('w', { status: 'busy' })], { selfName: 'zz', store })
       const caption = ((await ui.find({ key: 'scene-caption' }))?.text ?? '') as string
@@ -1146,8 +1146,8 @@ describe('6. project icons and empty states', () => {
       previous = caption
     }
   })
-  test('AC-50 Only own session (own card in its shelf; the scene follows the Active-empty rule)', async ($, on) => {
-    const working = await mountPane($, on, [S('mine', { status: 'busy' })], shelfOn()) // amend 2026-10-18: AC-08a
+  test('Only own session (own card in its shelf; the scene follows the Active-empty rule)', async ($, on) => {
+    const working = await mountPane($, on, [S('mine', { status: 'busy' })], shelfOn())
     expect((await orderOf(working.ui)).working).toEqual(refs('mine'))
     expect(await working.ui.find({ key: 'scene' })).toBeDefined()
     const idle = await mountPane($, on, [S('mine')])
@@ -1155,33 +1155,33 @@ describe('6. project icons and empty states', () => {
     expect(await idle.ui.find({ key: 'scene' })).toBeUndefined()
   })
 })
-todo('AC-47a/AC-47b/AC-42 colour fidelity of the scene and the project picture (G) -- layer live-Ghostty') // amend 2026-10-18: AC-42
+todo('colour fidelity of the scene and the project picture (G) -- layer live-Ghostty')
 
 // ---------------------------------------------------------------- 7. Shelves and lifecycle
 describe('7. shelves and lifecycle', () => {
   const pref = (name: string, value: object) => [`pref:${idOf(name)}`, value] as const
-  test('AC-51 Owner pins (pinned whatever the status)', async ($, on) => {
+  test('A person pins (pinned whatever the status)', async ($, on) => {
     const names = ['a', 'b', 'c', 'd']
     const statuses = ['busy', 'waiting', 'completed', 'idle'] as const
     const store = new Map(names.map(n => pref(n, { isPinned: true })))
     const { ui } = await mountPane($, on, names.map((n, i) => S(n, { status: statuses[i] })), { store })
     expect((await orderOf(ui)).pinned?.sort()).toEqual(refs(...names).sort())
   })
-  test('AC-52 Needs-you session (unpinned: Active, above the others)', async ($, on) => {
+  test('Needs-you session (unpinned: Active, above the others)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('i1'), S('i2', { ageMs: MIN }), S('n', { status: 'waiting' }), S('i3', { ageMs: 2 * MIN })])
     expect((await orderOf(ui)).active![0]).toBe(refOf('n'))
   })
-  test('AC-53a Working session (unpinned: Working)', async ($, on) => {
-    const { ui } = await mountPane($, on, [S('mine'), S('w', { status: 'busy' })], shelfOn()) // amend 2026-10-18: AC-08a
+  test('Working session (unpinned: Working)', async ($, on) => {
+    const { ui } = await mountPane($, on, [S('mine'), S('w', { status: 'busy' })], shelfOn())
     expect((await orderOf(ui)).working).toContain(refOf('w'))
   })
-  test('AC-53b Working and needs you (goes to Active)', async ($, on) => {
+  test('Working and needs you (goes to Active)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('w', { status: 'waiting', reason: 'asks' })], { selfName: 'zz' })
     const order = await orderOf(ui)
     expect(order.active).toContain(refOf('w'))
     expect(order.working ?? []).not.toContain(refOf('w'))
   })
-  test('AC-54a Idle 6 h (Inactive)', async ($, on) => {
+  test('Idle 6 h (Inactive)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine'), S('six', { ageMs: 6 * HOUR }), S('five', { ageMs: 6 * HOUR - MIN })])
     const store = new Map<string, unknown>()
     await press(ui, 'shelf:inactive')
@@ -1190,45 +1190,45 @@ describe('7. shelves and lifecycle', () => {
     expect(order.active).toContain(refOf('five'))
     expect(store.size).toBe(0)
   })
-  test('AC-54b Idle 7 h but pinned, snoozed, parked or settled (stays where the user put it)', async ($, on) => {
+  test('Idle 7 h but pinned, snoozed, parked or settled (stays where the user put it)', async ($, on) => {
     const store = new Map<string, unknown>([pref('p', { isPinned: true }), pref('s', { snoozedUntil: TUE_10 + HOUR }), pref('k', { isParked: true }), pref('t', { isSettled: true })])
     const { ui } = await mountPane($, on, ['p', 's', 'k', 't'].map(n => S(n, { ageMs: 7 * HOUR })), { store, selfName: 'zz' })
     expect((await orderOf(ui)).inactive ?? []).toEqual([])
-    // phase 2: AC-54b positive twin -- each card is on the shelf the user put it on.
+    // phase 2: positive twin -- each card is on the shelf the user put it on.
     expect((await orderOf(ui)).pinned).toEqual(refs('p'))
     for (const shelf of ['snoozed', 'parked', 'settled']) expect(await headerText(ui, shelf)).toMatch(/\(1\)/)
   })
-  test('AC-55 Other sessions (Active)', async ($, on) => {
+  test('Other sessions (Active)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('a', { ageMs: HOUR }), S('d', { status: 'completed' })], { selfName: 'zz' })
     expect((await orderOf(ui)).active?.sort()).toEqual(refs('a', 'd').sort())
   })
-  test('AC-56a Hover over a card (Pin/Unpin shown only on hover)', async ($, on) => {
+  test('Hover over a card (Pin/Unpin shown only on hover)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('a')])
     const hidden = (await ui.findAll({ type: 'Box' })).filter((one: any) => one.props.display === 'none')
     expect(hidden.some((one: any) => /pin/i.test(one.text))).toBe(true)
   })
-  test('AC-56b Hover over a card (Snooze, Park, Settle only on non-working, non-needs-you cards)', async ($, on) => {
+  test('Hover over a card (Snooze, Park, Settle only on non-working, non-needs-you cards)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('w', { status: 'busy' }), S('n', { status: 'waiting' }), S('i')], { selfName: 'zz' })
     for (const name of ['w', 'n']) for (const act of ['snooze', 'park', 'settle']) expect(await ui.find({ key: `${act}:${refOf(name)}` })).toBeUndefined()
     for (const act of ['snooze', 'park', 'settle']) expect(await ui.find({ key: `${act}:${refOf('i')}` })).toBeDefined()
   })
-  test('AC-57a Press Pin (card moves to Pinned)', async ($, on) => {
+  test('Press Pin (card moves to Pinned)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('a'), S('b')], { selfName: 'zz' })
     await press(ui, `pin:${refOf('b')}`)
     expect((await orderOf(ui)).pinned).toEqual(refs('b'))
   })
-  test('AC-57b Press Unpin (returns to its status shelf)', async ($, on) => {
-    const store = new Map<string, unknown>([pref('w', { isPinned: true }), SHELF_ON]) // amend 2026-10-18: AC-08a
+  test('Press Unpin (returns to its status shelf)', async ($, on) => {
+    const store = new Map<string, unknown>([pref('w', { isPinned: true }), SHELF_ON])
     const { ui } = await mountPane($, on, [S('w', { status: 'busy' })], { store, selfName: 'zz' })
     await press(ui, `pin:${refOf('w')}`)
     expect((await orderOf(ui)).working).toEqual(refs('w'))
   })
-  test('AC-58a Open snooze (five presets)', async ($, on) => {
+  test('Open snooze (five presets)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('a')], { selfName: 'zz' })
     await press(ui, `snooze:${refOf('a')}`)
     for (const label of ['1 hour', '5 hours', 'This evening', 'Tomorrow morning', 'Next week']) expect(await hasText(ui, label)).toBe(true)
   })
-  test('AC-58b Pick presets (wake times: +1h, +5h, 18:00 today, 09:00 tomorrow, 09:00 next Monday)', async ($, on) => {
+  test('Pick presets (wake times: +1h, +5h, 18:00 today, 09:00 tomorrow, 09:00 next Monday)', async ($, on) => {
     const cases: [string, number][] = [
       ['1 hour', TUE_10 + HOUR], ['5 hours', TUE_10 + 5 * HOUR], ['This evening', new Date(2026, 9, 13, 18).getTime()],
       ['Tomorrow morning', new Date(2026, 9, 14, 9).getTime()], ['Next week', new Date(2026, 9, 19, 9).getTime()],
@@ -1241,13 +1241,13 @@ describe('7. shelves and lifecycle', () => {
     }
   })
   // phase 2: the Sunday case runs on its own clock; moving one clock five days ahead fires every timer in between.
-  test('AC-58b Pick presets (Next week from Sunday evening is 09:00 the next day)', async ($, on) => {
+  test('Pick presets (Next week from Sunday evening is 09:00 the next day)', async ($, on) => {
     const sunday = new Date(2026, 9, 18, 20).getTime()
     const { ui, store } = await mountPane($, on, [S('a')], { selfName: 'zz', now: sunday })
     await press(ui, `snooze:${refOf('a')}`); await press(ui, 'snooze-pick:Next week')
     expect(JSON.stringify([...store.values()])).toContain(String(new Date(2026, 9, 19, 9).getTime()))
   })
-  test('AC-59 After 18:00 (This evening not offered)', async ($, on) => {
+  test('After 18:00 (This evening not offered)', async ($, on) => {
     for (const [h, m, offered] of [[17, 59, true], [18, 0, false], [18, 1, false]] as const) {
       const { ui } = await mountPane($, on, [S('a')], { selfName: 'zz', now: new Date(2026, 9, 13, h, m).getTime() })
       await press(ui, `snooze:${refOf('a')}`)
@@ -1255,7 +1255,7 @@ describe('7. shelves and lifecycle', () => {
     }
   })
   // phase 2: an hour of simulated time with the scene animating takes longer than the default 5 s.
-  test('AC-60 Pick 5 h preset (card in Snoozed with time left)', { timeoutMs: 30_000 }, async ($, on) => {
+  test('Pick 5 h preset (card in Snoozed with time left)', { timeoutMs: 30_000 }, async ($, on) => {
     const { ui, clock } = await mountPane($, on, [S('a')], { selfName: 'zz' })
     await press(ui, `snooze:${refOf('a')}`); await press(ui, 'snooze-pick:5 hours')
     await press(ui, 'shelf:snoozed')
@@ -1264,7 +1264,7 @@ describe('7. shelves and lifecycle', () => {
     for (let i = 0; i < 60; i++) { await clock.advance(MIN); await ui.advance(MIN) }
     expect(await rowText(ui, 'a')).toMatch(/4h/)
   })
-  test('AC-61a Wake time passes (card returns, "Woke" in the status slot)', { timeoutMs: 30_000 }, async ($, on) => {
+  test('Wake time passes (card returns, "Woke" in the status slot)', { timeoutMs: 30_000 }, async ($, on) => {
     const store = new Map<string, unknown>([pref('a', { snoozedUntil: TUE_10 + HOUR })])
     const { ui, clock } = await mountPane($, on, [S('a')], { store, selfName: 'zz' })
     // phase 2: an hour in minute steps; one harness advance resolves at most 10 000 timer waits and the 100 ms animation timer runs.
@@ -1272,42 +1272,42 @@ describe('7. shelves and lifecycle', () => {
     expect((await orderOf(ui)).active).toContain(refOf('a'))
     expect(await rowText(ui, 'a')).toMatch(/Woke/)
   })
-  test('AC-61b Owner presses a woken card ("Woke" clears)', async ($, on) => {
+  test('A person presses a woken card ("Woke" clears)', async ($, on) => {
     const store = new Map<string, unknown>([pref('a', { snoozedUntil: TUE_10 - MIN })])
     const { ui } = await mountPane($, on, [S('a')], { store, selfName: 'zz' })
     expect(await rowText(ui, 'a')).toMatch(/Woke/)
     await press(ui, `open:${refOf('a')}`)
     expect(await rowText(ui, 'a')).not.toMatch(/Woke/)
   })
-  test('AC-62 Snoozed session starts working or asks (early return marked "Woke")', async ($, on) => {
+  test('Snoozed session starts working or asks (early return marked "Woke")', async ($, on) => {
     const store = new Map<string, unknown>([pref('a', { snoozedUntil: TUE_10 + 5 * HOUR, snoozedStatus: 'idle' })])
-    const { ui } = await mountPane($, on, [S('a', { status: 'waiting', title: 'Back early' })], { store, selfName: 'zz' }) // amend 2026-10-18: AC-62
+    const { ui } = await mountPane($, on, [S('a', { status: 'waiting', title: 'Back early' })], { store, selfName: 'zz' })
     expect((await orderOf(ui)).active).toContain(refOf('a'))
-    // amend 2026-10-18: AC-62 -- `Woke ·` left line 3; a woken needs-you card keeps its pill and is marked by a bold title.
+    // `Woke ·` left line 3; a woken needs-you card keeps its pill and is marked by a bold title.
     expect(await rowText(ui, 'a')).toMatch(/Needs you/)
     expect((await rowText(ui, 'a')).split('\n')[2]).not.toMatch(/Woke/)
     expect((await ui.findAll({ type: 'Text' })).find((one: any) => one.text === 'Back early')?.props.bold).toBe(true)
   })
-  test('AC-63 Park (stays in Parked until it works, needs me or finishes)', async ($, on) => {
+  test('Park (stays in Parked until it works, needs me or finishes)', async ($, on) => {
     for (const [status, returns] of [['busy', true], ['waiting', true], ['completed', true], ['idle', false]] as const) {
       const store = new Map<string, unknown>([pref('a', { isParked: true, parkedStatus: 'idle' })])
       const { ui } = await mountPane($, on, [S('a', { status })], { store, selfName: 'zz' })
-      // phase 2: AC-08 -- Parked is collapsed by default; open it (when drawn) to read its cards.
+      // phase 2: Parked is collapsed by default; open it (when drawn) to read its cards.
       if (await ui.find({ key: 'shelf:parked' })) await press(ui, 'shelf:parked')
       const order = await orderOf(ui)
       expect((order.parked ?? []).includes(refOf('a'))).toBe(!returns)
     }
   })
-  test('AC-64 Settle (stays in Settled until it works, needs me or finishes)', async ($, on) => {
+  test('Settle (stays in Settled until it works, needs me or finishes)', async ($, on) => {
     for (const [status, returns] of [['busy', true], ['waiting', true], ['completed', true], ['idle', false]] as const) {
       const store = new Map<string, unknown>([pref('a', { isSettled: true, settledStatus: 'idle', settledAt: TUE_10 - HOUR })])
       const { ui } = await mountPane($, on, [S('a', { status })], { store, selfName: 'zz' })
-      // phase 2: AC-06 -- an empty Settled shelf is not drawn, so it is opened only when drawn.
+      // phase 2: an empty Settled shelf is not drawn, so it is opened only when drawn.
       if (await ui.find({ key: 'shelf:settled' })) await press(ui, 'shelf:settled')
       expect(((await orderOf(ui)).settled ?? []).includes(refOf('a'))).toBe(!returns)
     }
   })
-  test('AC-65 Working or needs-you card (Snooze, Park, Settle not offered; the key path refuses too)', async ($, on) => {
+  test('Working or needs-you card (Snooze, Park, Settle not offered; the key path refuses too)', async ($, on) => {
     const { ui, store } = await mountPane($, on, [S('w', { status: 'busy' }), S('n', { status: 'waiting' })], { selfName: 'zz' })
     for (const name of ['w', 'n']) for (const act of ['snooze', 'park', 'settle']) {
       expect(await ui.find({ key: `${act}:${refOf(name)}` })).toBeUndefined()
@@ -1315,13 +1315,13 @@ describe('7. shelves and lifecycle', () => {
     }
     expect([...store.keys()].filter(k => k.startsWith('pref:'))).toEqual([])
   })
-  test('AC-66 Several settled (most recently settled first)', async ($, on) => {
+  test('Several settled (most recently settled first)', async ($, on) => {
     const store = new Map<string, unknown>([pref('A', { isSettled: true, settledAt: TUE_10 - 3 * HOUR }), pref('B', { isSettled: true, settledAt: TUE_10 - 2 * HOUR }), pref('C', { isSettled: true, settledAt: TUE_10 - HOUR })])
     const { ui } = await mountPane($, on, [S('A'), S('B'), S('C')], { store, selfName: 'zz' })
     await press(ui, 'shelf:settled')
     expect((await orderOf(ui)).settled).toEqual(refs('C', 'B', 'A'))
   })
-  test('AC-67 Press a Done card (becomes Idle)', async ($, on) => {
+  test('Press a Done card (becomes Idle)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('a', { status: 'completed' })], { selfName: 'zz' })
     expect(await rowText(ui, 'a')).toMatch(/Done/)
     await press(ui, `open:${refOf('a')}`)
@@ -1334,9 +1334,9 @@ describe('7. shelves and lifecycle', () => {
 // ---------------------------------------------------------------- 8. Sorting and order
 describe('8. sorting and order', () => {
   const four = [S('a', { ageMs: 4 * MIN, startedAgoMs: 4 * DAY }), S('b', { ageMs: 1 * MIN, startedAgoMs: 2 * DAY }), S('c', { ageMs: 3 * MIN, startedAgoMs: 1 * DAY }), S('d', { ageMs: 2 * MIN, startedAgoMs: 3 * DAY })]
-  // amend 2026-10-18: AC-68 -- the Active header's `↕` toggles a menu of the four modes, the current one ticked.
-  // amend 2026-10-19: AC-68, AC-72, AC-73 -- Manual sort removed (Owner: no practical ordering in a terminal without drag and drop); only Pinned moves
-  test('AC-68 Open sort control (the header ↕ opens a menu of three modes)', async ($, on) => {
+  // the Active header's `↕` toggles a menu of the four modes, the current one ticked.
+  // Manual sort removed (no practical ordering in a terminal without drag and drop); only Pinned moves
+  test('Open sort control (the header ↕ opens a menu of three modes)', async ($, on) => {
     const { ui } = await mountPane($, on, four, { selfName: 'zz' })
     const sort = await ui.find({ key: 'sort' })
     expect(sort?.text).toBe(' ↕')
@@ -1351,8 +1351,8 @@ describe('8. sorting and order', () => {
     await press(ui, 'sort')
     expect(await ui.find({ key: 'sort-menu' })).toBeUndefined()
   })
-  // amend 2026-10-18: AC-68 -- choosing a mode sets the sort, closes the menu and moves the tick.
-  test('AC-68 Choosing a sort mode (sets it, closes the menu, ticks it next time)', async ($, on) => {
+  // choosing a mode sets the sort, closes the menu and moves the tick.
+  test('Choosing a sort mode (sets it, closes the menu, ticks it next time)', async ($, on) => {
     const { ui, store } = await mountPane($, on, four, { selfName: 'zz' })
     await press(ui, 'sort')
     await press(ui, 'sort:created')
@@ -1363,78 +1363,78 @@ describe('8. sorting and order', () => {
     expect((await ui.find({ key: 'sort:created' }))?.text).toBe('✓ Date created')
     expect((await ui.find({ key: 'sort:recent' }))?.text).toBe('  Recent activity')
   })
-  // amend 2026-10-18: AC-47 -- an empty Active shelf has no header, so no sort control either.
-  test('AC-68 Empty Active shelf (no header, no sort control)', async ($, on) => {
+  // an empty Active shelf has no header, so no sort control either.
+  test('Empty Active shelf (no header, no sort control)', async ($, on) => {
     const { ui } = await mountPane($, on, [])
     expect(await ui.find({ key: 'header:active' })).toBeUndefined()
     expect(await ui.find({ key: 'shelf:active' })).toBeUndefined()
     expect(await ui.find({ key: 'sort' })).toBeUndefined()
     expect(await ui.find({ key: 'scene' })).toBeDefined()
   })
-  test('AC-69 Default (recent activity, newest first)', async ($, on) => {
+  test('Default (recent activity, newest first)', async ($, on) => {
     const { ui } = await mountPane($, on, four, { selfName: 'zz' })
     expect((await orderOf(ui)).active).toEqual(refs('b', 'd', 'c', 'a'))
   })
-  test('AC-70 Date created (by start, newest first)', async ($, on) => {
+  test('Date created (by start, newest first)', async ($, on) => {
     const { ui } = await mountPane($, on, four, { selfName: 'zz' })
-    await pickSort(ui, 'created') // amend 2026-10-18: AC-68
+    await pickSort(ui, 'created')
     expect((await orderOf(ui)).active).toEqual(refs('c', 'b', 'd', 'a'))
   })
-  test('AC-71 Project (alphabetical groups; newest first within)', async ($, on) => {
+  test('Project (alphabetical groups; newest first within)', async ($, on) => {
     const sessions = [S('a1', { cwd: '/p/zeta', ageMs: 3 * MIN }), S('a2', { cwd: '/p/alpha', ageMs: 2 * MIN }), S('a3', { cwd: '/p/zeta', ageMs: 1 * MIN }), S('a4', { cwd: '/p/alpha', ageMs: 4 * MIN })]
     const { ui } = await mountPane($, on, sessions, { selfName: 'zz' })
-    await pickSort(ui, 'project') // amend 2026-10-18: AC-68
+    await pickSort(ui, 'project')
     expect((await orderOf(ui)).active).toEqual(refs('a2', 'a4', 'a3', 'a1'))
   })
-  // amend 2026-10-19: AC-68, AC-72, AC-73 -- Manual sort removed (Owner: no practical ordering in a terminal without drag and drop); only Pinned moves
-  test('AC-72 Active cards (no Move up/down in any mode)', async ($, on) => {
+  // Manual sort removed (no practical ordering in a terminal without drag and drop); only Pinned moves
+  test('Active cards (no Move up/down in any mode)', async ($, on) => {
     const { ui } = await mountPane($, on, four, { selfName: 'zz' })
     for (const mode of ['recent', 'created', 'project']) {
       await pickSort(ui, mode)
       for (const ref of (await orderOf(ui)).active!) expect(await ui.find({ key: `move-up:${ref}` })).toBeUndefined()
     }
   })
-  test('AC-74 Pinned (always manual order; Move up/down in every mode)', async ($, on) => {
+  test('Pinned (always manual order; Move up/down in every mode)', async ($, on) => {
     const store = new Map<string, unknown>(['p1', 'p2', 'p3'].map(n => [`pref:${idOf(n)}`, { isPinned: true }]))
     const { ui } = await mountPane($, on, [S('p1'), S('p2'), S('p3')], { store, selfName: 'zz' })
     expect(await ui.find({ key: `move-up:${refOf('p2')}` })).toBeDefined()
     expect(await ui.find({ key: `move-down:${refOf('p2')}` })).toBeDefined()
-    // amend 2026-10-19: AC-68, AC-72, AC-73 -- Manual sort removed (Owner: no practical ordering in a terminal without drag and drop); only Pinned moves: the pinned move still works by one place
+    // Manual sort removed (no practical ordering in a terminal without drag and drop); only Pinned moves: the pinned move still works by one place
     const start = (await orderOf(ui)).pinned!
     await press(ui, `move-up:${start[1]}`)
     expect((await orderOf(ui)).pinned).toEqual([start[1], start[0], start[2]])
   })
-  test('AC-74a Needs-you card (no Move up/down; nothing moves above the needs-you block)', async ($, on) => {
+  test('Needs-you card (no Move up/down; nothing moves above the needs-you block)', async ($, on) => {
     const sessions = [S('n1', { status: 'waiting' }), S('n2', { status: 'waiting', ageMs: MIN }), S('x1'), S('x2', { ageMs: MIN })]
     const { ui } = await mountPane($, on, sessions, { selfName: 'zz' })
-    expect(await ui.find({ key: `move-up:${refOf('n1')}` })).toBeUndefined() // amend 2026-10-19: AC-68, AC-72, AC-73 -- Manual sort removed (Owner: no practical ordering in a terminal without drag and drop); only Pinned moves
+    expect(await ui.find({ key: `move-up:${refOf('n1')}` })).toBeUndefined() // Manual sort removed (no practical ordering in a terminal without drag and drop); only Pinned moves
   })
-  test('AC-75 Any sort mode (needs-you stays above)', async ($, on) => {
+  test('Any sort mode (needs-you stays above)', async ($, on) => {
     for (const mode of ['recent', 'created', 'project']) {
       const sessions = [S('x1', { ageMs: 0 }), S('n1', { status: 'waiting', ageMs: 5 * MIN }), S('x2', { ageMs: MIN }), S('n2', { status: 'waiting', ageMs: 9 * MIN })]
       const { ui } = await mountPane($, on, sessions, { selfName: 'zz' })
-      await pickSort(ui, mode) // amend 2026-10-18: AC-68
+      await pickSort(ui, mode)
       const active = (await orderOf(ui)).active!
       const needs = [refOf('n1'), refOf('n2')]
       expect(active.slice(0, 2).sort()).toEqual(needs.sort())
     }
   })
-  test('AC-76 Several waiting (longest waiting first)', async ($, on) => {
+  test('Several waiting (longest waiting first)', async ($, on) => {
     const sessions = [S('w3', { status: 'waiting', sinceMs: 3 * MIN }), S('w10', { status: 'waiting', sinceMs: 10 * MIN }), S('w1', { status: 'waiting', sinceMs: MIN })]
     const { ui } = await mountPane($, on, sessions, { selfName: 'zz' })
     expect((await orderOf(ui)).active).toEqual(refs('w10', 'w3', 'w1'))
   })
-  test('AC-77 Other shelves (newest activity first)', async ($, on) => {
+  test('Other shelves (newest activity first)', async ($, on) => {
     const sessions = [S('w1', { status: 'busy', ageMs: 5 * MIN }), S('w2', { status: 'busy', ageMs: MIN }), S('w3', { status: 'busy', ageMs: 3 * MIN })]
-    const { ui } = await mountPane($, on, sessions, { selfName: 'zz', ...shelfOn() }) // amend 2026-10-18: AC-08a
+    const { ui } = await mountPane($, on, sessions, { selfName: 'zz', ...shelfOn() })
     expect((await orderOf(ui)).working).toEqual(refs('w2', 'w3', 'w1'))
   })
 })
 
 // ---------------------------------------------------------------- 9. Needs-you (top line and Next withdrawn)
-// amend 2026-10-18: AC-78 to AC-83 -- the top line (`N need you`, `Next ›`, hotkey n) and Next are withdrawn.
+// the top line (`N need you`, `Next ›`, hotkey n) and Next are withdrawn.
 describe('9. no top line', () => {
-  test('AC-78 to AC-83 withdrawn: no top line and no Next button, even with sessions that need the Owner', async ($, on) => {
+  test('withdrawn: no top line and no Next button, even with sessions that need the person', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine'), S('a', { status: 'waiting' }), S('b', { status: 'waiting', app: 'tmux' })])
     expect(await hasText(ui, /need you/)).toBe(false)
     expect(await hasText(ui, /Next ›/)).toBe(false)
@@ -1448,14 +1448,14 @@ describe('9. no top line', () => {
 // ---------------------------------------------------------------- 10. Press to focus
 describe('10. press to focus', () => {
   const LINE = (name: string) => `cd '/p/${name}' && claude --resume ${idOf(name)}`
-  test('AC-84 Press a same-app card (tab to front)', async ($, on) => {
+  test('Press a same-app card (tab to front)', async ($, on) => {
     const world: World = { ran: [] }
     const { ui } = await mountPane($, on, [S('mine'), S('other')], world)
     await press(ui, `open:${refOf('other')}`)
     expect(world.ran!.filter(a => a[0] === 'osascript').length).toBe(1)
     expect(world.ran![0]!.join(' ')).toContain('/p/other')
   })
-  test('AC-85a Press own card (no terminal focus change)', async ($, on) => {
+  test('Press own card (no terminal focus change)', async ($, on) => {
     const world: World = { ran: [] }
     const { ui } = await mountPane($, on, [S('mine')], world)
     world.ran!.length = 0
@@ -1469,14 +1469,14 @@ describe('10. press to focus', () => {
     await press(ui, `open:${refOf('mine')}`)
     expect(world.views).toEqual([{ agentId: 'a1' }, {}])
   })
-  test('AC-85b Press own card (clears Done and Woke)', async ($, on) => {
+  test('Press own card (clears Done and Woke)', async ($, on) => {
     const store = new Map<string, unknown>([[`pref:${idOf('mine')}`, { snoozedUntil: TUE_10 - MIN }]])
     const { ui } = await mountPane($, on, [S('mine', { status: 'completed' })], { store })
     expect(await rowText(ui, 'mine')).toMatch(/Done|Woke/)
     await press(ui, `open:${refOf('mine')}`)
     expect(await rowText(ui, 'mine')).not.toMatch(/Done|Woke/)
   })
-  test('AC-86 Press an other-app card (no switch; note names the app)', async ($, on) => {
+  test('Press an other-app card (no switch; note names the app)', async ($, on) => {
     const world: World = { ran: [] }
     const { ui } = await mountPane($, on, [S('mine'), S('away', { app: 'tmux' })], world)
     world.ran!.length = 0
@@ -1484,20 +1484,20 @@ describe('10. press to focus', () => {
     expect(world.ran).toEqual([])
     expect(await hasText(ui, /runs in tmux/)).toBe(true)
   })
-  test('AC-87a Focus step fails (resume command copied)', async ($, on) => {
+  test('Focus step fails (resume command copied)', async ($, on) => {
     const world: World = { copies: [], focusFails: 'step failed' }
     const { ui } = await mountPane($, on, [S('mine'), S('other')], world)
     await press(ui, `open:${refOf('other')}`)
     expect(world.copies).toEqual([LINE('other')])
   })
-  test('AC-87b Focus step fails (note names the failed step)', async ($, on) => {
+  test('Focus step fails (note names the failed step)', async ($, on) => {
     const world: World = { copies: [], focusFails: 'step failed' }
     const { ui } = await mountPane($, on, [S('mine'), S('other')], world)
     await press(ui, `open:${refOf('other')}`)
     expect(await hasText(ui, /Copied/)).toBe(true)
     expect(await hasText(ui, /step|Ghostty/)).toBe(true)
   })
-  test('AC-88 Any press (no toast)', async ($, on) => {
+  test('Any press (no toast)', async ($, on) => {
     for (const w of [{}, { focusFails: 'x' }] as World[]) {
       const world: World = { toasts: [], copies: [], ...w }
       const { ui } = await mountPane($, on, [S('mine'), S('other'), S('away', { app: 'tmux' })], world)
@@ -1505,8 +1505,8 @@ describe('10. press to focus', () => {
       expect(world.toasts).toEqual([])
     }
   })
-  test('AC-89b Two tabs share a folder (copies the resume command; note says the folder is shared)', async ($, on) => {
-    // phase 2: AC-89b -- the Ghostty script succeeds and prints the number of matching tabs.
+  test('Two tabs share a folder (copies the resume command; note says the folder is shared)', async ($, on) => {
+    // phase 2: the Ghostty script succeeds and prints the number of matching tabs.
     const world: World = { copies: [], ran: [], focusAnswer: '2\n' }
     const { ui } = await mountPane($, on, [S('mine'), S('other')], world)
     await press(ui, `open:${refOf('other')}`)
@@ -1514,20 +1514,20 @@ describe('10. press to focus', () => {
     expect(await hasText(ui, /folder is shared|tabs in this folder/)).toBe(true)
   })
 })
-todo('AC-84 / AC-89a Press focuses the right tab in real Ghostty tabs and real tmux windows -- layer live-Ghostty / live-tmux')
-todo('AC-104 Status changes elsewhere show within 6 s -- layer live-Ghostty')
-todo('AC-105 Press in Ghostty brings the tab front within 2 s -- layer live-Ghostty')
-todo('AC-110 10 sessions animating use at most 5% of one core -- layer live-Ghostty (ps sampling)') // amend 2026-10-18: AC-110
+todo('Press focuses the right tab in real Ghostty tabs and real tmux windows -- layer live-Ghostty / live-tmux')
+todo('Status changes elsewhere show within 6 s -- layer live-Ghostty')
+todo('Press in Ghostty brings the tab front within 2 s -- layer live-Ghostty')
+todo('10 sessions animating use at most 5% of one core -- layer live-Ghostty (ps sampling)')
 
 // ---------------------------------------------------------------- 11. Subagents and context
 describe('11. subagents and context', () => {
-  test('AC-90 Press a child row (transcript in the main view; a missing transcript gives a note)', async ($, on) => {
+  test('Press a child row (transcript in the main view; a missing transcript gives a note)', async ($, on) => {
     const { ui, world } = await mountPane($, on, [S('mine')], { agents: [AGENT('a1', 'running', 'Scan', { transcriptPath: '/missing.jsonl' })] })
     await press(ui, 'view:a1')
     expect(await hasText(ui, /transcript/i)).toBe(true)
     expect(world.toasts ?? []).toEqual([])
   })
-  test('AC-91a Subagent starts (row within one refresh)', async ($, on) => {
+  test('Subagent starts (row within one refresh)', async ($, on) => {
     const world: World = { agents: [] }
     const { ui, clock } = await mountPane($, on, [S('mine')], world)
     expect(await ui.find({ key: 'view:a1' })).toBeUndefined()
@@ -1535,7 +1535,7 @@ describe('11. subagents and context', () => {
     await clock.advance(6000); await ui.advance(6000)
     expect(await ui.find({ key: 'view:a1' })).toBeDefined()
   })
-  // amend 2026-10-19: live defect D3 -- ListAgents lists the own subagents in a `subagents` section; none becomes a card.
+  // ListAgents lists the own subagents in a `subagents` section; none becomes a card.
   test('D3 A subagent listed by ListAgents is a child row, never a session card', async ($, on) => {
     const agents = [AGENT('a715004d2b60f4252', 'completed', 'Count files')]
     const { ui } = await mountPane($, on, [S('mine')], { agents, subagentRows: [{ id: 'a715004d2b60f4252', type: 'general-purpose', status: 'completed' }] })
@@ -1543,14 +1543,14 @@ describe('11. subagents and context', () => {
     expect(await hasText(ui, /^a715004d2b60f4252$/)).toBe(false)
     expect(await ui.find({ key: 'view:a715004d2b60f4252' })).toBeDefined()
   })
-  test('AC-91b Subagent removed (row gone within one refresh)', async ($, on) => {
+  test('Subagent removed (row gone within one refresh)', async ($, on) => {
     const world: World = { agents: [AGENT('a1', 'running', 'Scan')] }
     const { ui, clock } = await mountPane($, on, [S('mine')], world)
     world.agents = []
     await clock.advance(6000); await ui.advance(6000)
     expect(await ui.find({ key: 'view:a1' })).toBeUndefined()
   })
-  // amend 2026-10-19: live defect D2 -- the engine forgets an ended subagent; its row stays Done for the session.
+  // the engine forgets an ended subagent; its row stays Done for the session.
   test('D2 Finished subagents stay listed after the agent list forgets them; the badge keeps counting them', async ($, on) => {
     const world: World = { agents: [AGENT('a1', 'running', 'Count files'), AGENT('a2', 'running', 'Read README')] }
     const { ui, clock } = await mountPane($, on, [S('mine')], world, 70)
@@ -1568,8 +1568,8 @@ describe('11. subagents and context', () => {
     expect(await ui.find({ key: 'view:a1' })).toBeDefined()
     expect(await ui.find({ key: 'view:b1' })).toBeDefined()
   })
-  // amend 2026-10-19: AC-92 -- child rows use the card words, so engine waiting and running are both Working.
-  test('AC-92 Mixed states (failed, then working, then finished; each newest first)', async ($, on) => {
+  // child rows use the card words, so engine waiting and running are both Working.
+  test('Mixed states (failed, then working, then finished; each newest first)', async ($, on) => {
     const agents = [
       AGENT('d1', 'completed', 'd1', { startedAt: 1 }), AGENT('r1', 'running', 'r1', { startedAt: 1 }), AGENT('w1', 'waiting', 'w1', { startedAt: 1 }),
       AGENT('r2', 'running', 'r2', { startedAt: 2 }), AGENT('w2', 'waiting', 'w2', { startedAt: 2 }), AGENT('d2', 'completed', 'd2', { startedAt: 2 }),
@@ -1578,29 +1578,29 @@ describe('11. subagents and context', () => {
     const keys = (await ui.findAll({})).map((one: any) => one.key as string).filter((k: string) => k?.startsWith('view:'))
     expect(keys).toEqual(['view:r2', 'view:w2', 'view:r1', 'view:w1', 'view:d2'])
   })
-  // amend 2026-10-18: AC-93 -- a plain percentage, muted below 75, orange from 75, red at 100.
-  test('AC-93 Own card context (plain percentage; muted under 75, orange 75 to 99, red 100)', async ($, on) => {
+  // a plain percentage, muted below 75, orange from 75, red at 100.
+  test('Own card context (plain percentage; muted under 75, orange 75 to 99, red 100)', async ($, on) => {
     const want: [number, 'dim' | 'orange' | 'red'][] = [[0, 'dim'], [74, 'dim'], [75, 'orange'], [99, 'orange'], [100, 'red']]
     for (const [pct, tone] of want) {
       const { ui } = await mountPane($, on, [S('mine', { ctx: pct })], {}, 70)
       expect((await rowText(ui, 'mine')).split('\n')[2]).toMatch(new RegExp(` ${pct}%$`))
       const label = (await ui.findAll({ type: 'Text' })).find((one: any) => one.text === `${pct}%`)
-      // phase 2: AC-93 -- context colours are the palette's hex values.
+      // phase 2: context colours are the palette's hex values.
       if (tone === 'dim') {
         expect(label?.props.dimColor).toBe(true)
-        expect(label?.props.color).toBe(PALETTES.dark.ink) // amend 2026-10-19: Owner demo -- plain text on the own-card fill takes the palette ink
+        expect(label?.props.color).toBe(PALETTES.dark.ink) // plain text on the own-card fill takes the palette ink
       } else expect(label?.props.color).toBe(PALETTES.dark.text[tone])
       expect(label?.text).not.toMatch(/[▰▱]/)
     }
   })
-  test('AC-94a Other session, source reports (percent shown)', async ($, on) => {
+  test('Other session, source reports (percent shown)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine'), S('other', { ctx: 33 })], {}, 70)
     expect(await rowText(ui, 'other')).toContain('33%')
   })
-  test('AC-94b Other session, no source (nothing shown, never estimated)', async ($, on) => {
+  test('Other session, no source (nothing shown, never estimated)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine'), S('other', { title: 'big', prompt: 'x'.repeat(5000) }), S('third', { ctx: 33 })], {}, 70)
     expect(await rowText(ui, 'other')).not.toMatch(/\d+%/)
-    // phase 2: AC-94b positive twin -- the session whose source reports a value shows it, in the same pane.
+    // phase 2: positive twin -- the session whose source reports a value shows it, in the same pane.
     expect(await rowText(ui, 'third')).toContain('33%')
   })
 })
@@ -1608,82 +1608,82 @@ describe('11. subagents and context', () => {
 // ---------------------------------------------------------------- 12. Layers and terminals
 describe('12. layers and terminals', () => {
   const scenario = [S('mine'), S('w', { status: 'busy' }), S('n', { status: 'waiting', sinceMs: 5 * MIN }), S('d', { status: 'completed' }), S('i', { ageMs: 7 * HOUR })]
-  test('AC-95a Unknown terminal (lists every session)', async ($, on) => {
+  test('Unknown terminal (lists every session)', async ($, on) => {
     const known = await mountPane($, on, scenario, {})
     const unknown = await mountPane($, on, scenario, { term: 'unknown' })
     expect(Object.values(await orderOf(unknown.ui)).flat().sort()).toEqual(Object.values(await orderOf(known.ui)).flat().sort())
   })
-  test('AC-95b Unknown terminal (shelf, sort and lifecycle rules apply)', async ($, on) => {
+  test('Unknown terminal (shelf, sort and lifecycle rules apply)', async ($, on) => {
     const known = await mountPane($, on, scenario, {})
     const unknown = await mountPane($, on, scenario, { term: 'unknown' })
     expect(await orderOf(unknown.ui)).toEqual(await orderOf(known.ui))
   })
-  test('AC-95c Unknown terminal (every status shows)', async ($, on) => {
+  test('Unknown terminal (every status shows)', async ($, on) => {
     const { ui } = await mountPane($, on, scenario, { term: 'unknown' })
     expect(await rowText(ui, 'w')).toMatch(/Working/)
     expect(await rowText(ui, 'n')).toMatch(/Needs you/)
     expect(await rowText(ui, 'd')).toMatch(/Done/)
   })
-  test('AC-96 Unknown terminal, press (copies the command; note "terminal is not supported for switching")', async ($, on) => {
+  test('Unknown terminal, press (copies the command; note "terminal is not supported for switching")', async ($, on) => {
     const world: World = { copies: [] }
     const { ui } = await mountPane($, on, [S('mine'), S('other')], { ...world, term: 'unknown', copies: world.copies })
     await press(ui, `open:${refOf('other')}`)
     expect(world.copies!.length).toBe(1)
     expect(await hasText(ui, /terminal is not supported for switching/)).toBe(true)
   })
-  test('AC-98 Ghostty not in cmux or tmux (adapter recognises it)', async ($, on) => {
+  test('Ghostty not in cmux or tmux (adapter recognises it)', async ($, on) => {
     const world: World = { ran: [] }
     const { ui } = await mountPane($, on, [S('mine'), S('other')], world)
     await press(ui, `open:${refOf('other')}`)
     expect(world.ran![0]![0]).toBe('osascript')
   })
-  test('AC-99 Inside cmux (reports Ghostty too; treated as cmux)', async ($, on) => {
+  test('Inside cmux (reports Ghostty too; treated as cmux)', async ($, on) => {
     const world: World = { ran: [], env: { CMUX_WORKSPACE_ID: 'W0', CMUX_BUNDLED_CLI_PATH: '/c/cmux', TERM_PROGRAM: 'ghostty' } }
     const { ui } = await mountPane($, on, [S('mine'), S('other', { app: 'cmux' })], world)
     await press(ui, `open:${refOf('other')}`)
     expect(world.ran![0]![0]).toBe('sh')
     expect(world.ran!.some(a => a[0] === 'osascript')).toBe(false)
   })
-  test('AC-101 24-bit terminal (scenes drawn)', async ($, on) => { // amend 2026-10-18: AC-101
+  test('24-bit terminal (scenes drawn)', async ($, on) => {
     const { ui } = await mountPane($, on, [])
     expect(await ui.find({ key: 'scene' })).toBeDefined()
   })
-  // amend 2026-10-18: AC-102 -- without 24-bit colour the icon is the monogram, even where a picture exists.
-  test('AC-102a Non-24-bit terminal (project icons fall back to monograms)', async ($, on) => {
+  // without 24-bit colour the icon is the monogram, even where a picture exists.
+  test('Non-24-bit terminal (project icons fall back to monograms)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine'), S('n', { status: 'waiting' })], withFiles({ '/p/n/favicon.png': 1000 }, { truecolor: false }))
     const lines = (await rowText(ui, 'n')).split('\n')
     expect(lines.length).toBeLessThanOrEqual(3)
     expect(lines[0]).toMatch(/^N  n/)
     expect(await iconKindOf(ui, 'n')).toBe('monogram')
   })
-  test('AC-102b Non-24-bit terminal (scene replaced by the caption alone)', async ($, on) => {
+  test('Non-24-bit terminal (scene replaced by the caption alone)', async ($, on) => {
     const { ui } = await mountPane($, on, [], { truecolor: false })
     expect(await ui.find({ key: 'scene' })).toBeUndefined()
     expect(await hasText(ui, 'All clear. Time to touch some grass.')).toBe(true)
-    // phase 2: AC-102b positive twin -- the caption is the scene's own caption element.
+    // phase 2: positive twin -- the caption is the scene's own caption element.
     expect((await ui.find({ key: 'scene-caption' }))?.text).toContain('All clear. Time to touch some grass.')
   })
 })
-// TODO(translator): AC-97 (static scan that core and drawing modules name no terminal) needs file reads; a mod test cannot import node:fs (runner: hooks modules import only relative files and claude-code). Run it as a repo script instead.
-// TODO(translator): AC-100 (phase 1 focus behaviour unchanged) is covered by the unmodified tests/focus.test.ts, which this file does not duplicate.
-// TODO(translator): AC-103 (88 phase-1 tests still pass) is a property of the runner's result for the other files, not a check.
-todo('AC-100 Press in cmux, tmux, Terminal, iTerm2 (live tmux window selected) -- layer live-tmux')
-todo('AC-102a/b Non-24-bit path with COLORTERM unset in a real tmux -- layer live-tmux')
+// TODO(translator): (static scan that core and drawing modules name no terminal) needs file reads; a mod test cannot import node:fs (runner: hooks modules import only relative files and claude-code). Run it as a repo script instead.
+// TODO(translator): (phase 1 focus behaviour unchanged) is covered by the unmodified tests/focus.test.ts, which this file does not duplicate.
+// TODO(translator): (88 phase-1 tests still pass) is a property of the runner's result for the other files, not a check.
+todo('Press in cmux, tmux, Terminal, iTerm2 (live tmux window selected) -- layer live-tmux')
+todo('Non-24-bit path with COLORTERM unset in a real tmux -- layer live-tmux')
 
 // ---------------------------------------------------------------- 13. Performance and safety
 describe('13. performance and safety', () => {
-  test('AC-106 Any refresh (token files never opened or read)', async ($, on) => {
+  test('Any refresh (token files never opened or read)', async ($, on) => {
     const world: World = { ran: [], reads: [] }
     const { ui, clock } = await mountPane($, on, [S('mine'), S('other')], world)
     await clock.advance(6000); await ui.advance(6000)
     const seen = JSON.stringify([...world.ran!, ...world.reads!])
     expect(seen).not.toMatch(/token|credentials|\.credentials|oauth/i)
-    // phase 2: AC-106 positive twin -- the registry reader globs session files only, and it ran.
+    // phase 2: positive twin -- the registry reader globs session files only, and it ran.
     expect(REGISTRY_SCRIPT).toMatch(/sessions\/\*\.json/)
     expect(REGISTRY_SCRIPT).not.toMatch(/\.key|token/i)
     expect(world.runs ?? 0).toBeGreaterThan(0)
   })
-  test('AC-107 50 MB transcript (reads at most 256 KB)', async ($, on) => {
+  test('50 MB transcript (reads at most 256 KB)', async ($, on) => {
     const world: World = { reads: [] }
     await mountPane($, on, [S('mine', { title: 'big' })], world)
     // The title script tails a bounded window; the stub boundary is the script itself.
@@ -1691,14 +1691,14 @@ describe('13. performance and safety', () => {
     const bytes = Number(/tail -c (\d+)/.exec(TITLE_SCRIPT)![1])
     expect(bytes).toBeLessThanOrEqual(262144)
   })
-  test('AC-108 Activity time unchanged (no transcript read; a changed time reads once)', async ($, on) => {
+  test('Activity time unchanged (no transcript read; a changed time reads once)', async ($, on) => {
     const world: World = { reads: [] }
     const { ui, clock } = await mountPane($, on, [S('mine', { title: 't' })], world)
     const after = world.reads!.length
     expect(after).toBe(1)
     await clock.advance(6000); await ui.advance(6000)
     expect(world.reads!.length).toBe(after)
-    // phase 2: AC-108 positive twin -- a moved activity time reads the transcript once.
+    // phase 2: positive twin -- a moved activity time reads the transcript once.
     const sessions = [S('mine', { title: 't' })]
     const twin: World = { reads: [] }
     const moved = await mountPane($, on, sessions, twin)
@@ -1707,17 +1707,17 @@ describe('13. performance and safety', () => {
     await moved.clock.advance(6000); await moved.ui.advance(6000)
     expect(twin.reads!.length).toBe(2)
   })
-  test('AC-109 Nothing changed (at most 2 helper processes per refresh)', async ($, on) => {
+  test('Nothing changed (at most 2 helper processes per refresh)', async ($, on) => {
     const world: World = { ran: [], reads: [] }
     const { ui, clock } = await mountPane($, on, [S('mine'), S('other')], world)
-    // phase 2: AC-109 -- every process.run is counted (registry, probes, readers, helpers).
+    // phase 2: every process.run is counted (registry, probes, readers, helpers).
     world.runs = 0
     await clock.advance(6000); await ui.advance(6000)
     expect(world.runs).toBeGreaterThanOrEqual(1)
     expect(world.runs).toBeLessThanOrEqual(2)
   })
-  test('AC-111 Pane hidden (animations stop)', async ($, on) => {
-    // phase 2: AC-111 -- a hidden pane refuses the blit; the timer stops, so no further frame is sent.
+  test('Pane hidden (animations stop)', async ($, on) => {
+    // phase 2: a hidden pane refuses the blit; the timer stops, so no further frame is sent.
     const { ui, clock, world } = await mountPane($, on, [S('mine'), S('w', { status: 'busy' })], { ran: [], blits: [] })
     await clock.advance(500); await ui.advance(500)
     expect(world.blits!.length).toBeGreaterThan(0)
@@ -1729,28 +1729,28 @@ describe('13. performance and safety', () => {
     expect(world.blits!.length).toBe(sent)
     expect(await textOf(ui)).toBe(before)
   })
-  test('AC-112 No working or needs-you card visible, no scene (animations stop)', async ($, on) => {
+  test('No working or needs-you card visible, no scene (animations stop)', async ($, on) => {
     const { ui, clock, world } = await mountPane($, on, [S('mine'), S('i')], { blits: [] })
     const before = await textOf(ui)
     await clock.advance(1000); await ui.advance(1000)
     expect(await textOf(ui)).toBe(before)
-    // phase 2: AC-112 -- nothing is blitted; positive twin: a working card in the same harness is.
+    // phase 2: nothing is blitted; positive twin: a working card in the same harness is.
     expect(world.blits).toEqual([])
     const busy = await mountPane($, on, [S('mine'), S('w', { status: 'busy' })], { blits: [] })
     await busy.clock.advance(1000); await busy.ui.advance(1000)
     expect(busy.world.blits!.length).toBeGreaterThan(0)
   })
-  test('AC-113 Animation running (at most 10 frames per second)', async ($, on) => {
-    const { ui, clock, world } = await mountPane($, on, [S('mine'), S('n', { status: 'waiting' }), S('w', { status: 'busy' })], { blits: [] }) // amend 2026-10-18: AC-113
+  test('Animation running (at most 10 frames per second)', async ($, on) => {
+    const { ui, clock, world } = await mountPane($, on, [S('mine'), S('n', { status: 'waiting' }), S('w', { status: 'busy' })], { blits: [] })
     const frames = new Set<string>()
     for (let i = 0; i < 100; i++) { frames.add(await textOf(ui)); await clock.advance(10); await ui.advance(10) }
     expect(frames.size).toBeLessThanOrEqual(10)
-    // amend 2026-10-18: AC-113 -- cards have no creature; the working card's spinner is the Raster that animates.
+    // cards have no creature; the working card's spinner is the Raster that animates.
     const sent = blitsOf(world, `spin:${refOf('w')}`).length
     expect(sent).toBeGreaterThan(0)
     expect(sent).toBeLessThanOrEqual(10)
   })
-  test('AC-114a Branch PR lookup (at most once per 5 min)', async ($, on) => {
+  test('Branch PR lookup (at most once per 5 min)', async ($, on) => {
     const world: World = { ghCalls: [] }
     const { ui, clock } = await mountPane($, on, [S('mine', { branch: 'feat' })], world)
     for (let i = 0; i < 4; i++) { await clock.advance(MIN); await ui.advance(MIN) }
@@ -1758,10 +1758,10 @@ describe('13. performance and safety', () => {
     await clock.advance(2 * MIN); await ui.advance(2 * MIN)
     expect(world.ghCalls!.length).toBe(2)
   })
-  test('AC-114b gh missing or not signed in (no lookup, no PR on the card)', async ($, on) => {
+  test('gh missing or not signed in (no lookup, no PR on the card)', async ($, on) => {
     const world: World = { gh: 'absent', ghCalls: [] }
     const { ui, clock } = await mountPane($, on, [S('mine', { branch: 'feat' })], world, 90)
-    // phase 2: AC-114b -- after the first lookup fails, none follows and no PR shows; positive twin: a signed-in gh shows #42.
+    // phase 2: after the first lookup fails, none follows and no PR shows; positive twin: a signed-in gh shows #42.
     for (let i = 0; i < 7; i++) { await clock.advance(MIN); await ui.advance(MIN) }
     expect(await rowText(ui, 'mine')).not.toMatch(/#\d+/)
     expect(world.ghCalls!.length).toBeLessThanOrEqual(1)
@@ -1774,20 +1774,20 @@ describe('13. performance and safety', () => {
 
 // ---------------------------------------------------------------- 14. Persistence
 describe('14. persistence', () => {
-  test('AC-115 Restart Claude Code (the saved kinds of state survive)', async ($, on) => {
+  test('Restart Claude Code (the saved kinds of state survive)', async ($, on) => {
     const sessions = [S('a'), S('b'), S('c'), S('d')]
     const first = await mountPane($, on, sessions, { selfName: 'zz' })
     await press(first.ui, `pin:${refOf('a')}`)
     await press(first.ui, `park:${refOf('b')}`)
     await press(first.ui, `settle:${refOf('c')}`)
-    await pickSort(first.ui, 'project') // amend 2026-10-19: AC-68, AC-72, AC-73 -- Manual sort removed (Owner: no practical ordering in a terminal without drag and drop); only Pinned moves
+    await pickSort(first.ui, 'project') // Manual sort removed (no practical ordering in a terminal without drag and drop); only Pinned moves
     await press(first.ui, 'shelf:active')
     const before = await orderOf(first.ui)
     const second = await mountPane($, on, sessions, { selfName: 'zz', store: first.store })
     expect(await orderOf(second.ui)).toEqual(before)
-    expect(await headerText(second.ui, 'active')).toMatch(/⌄$/) // amend 2026-10-18: AC-02
+    expect(await headerText(second.ui, 'active')).toMatch(/⌄$/)
   })
-  test('AC-116 Change in pane A (appears in pane B within 6 s)', async ($, on) => {
+  test('Change in pane A (appears in pane B within 6 s)', async ($, on) => {
     const sessions = [S('a'), S('b')]
     const a = await mountPane($, on, sessions, { selfName: 'zz' })
     const b = await mountPane($, on, sessions, { selfName: 'zz', store: a.store })
@@ -1795,7 +1795,7 @@ describe('14. persistence', () => {
     await b.clock.advance(6000); await b.ui.advance(6000)
     expect((await orderOf(b.ui)).pinned).toEqual(refs('a'))
   })
-  test('AC-117a Two panes save different sessions at once (both changes persist)', async ($, on) => {
+  test('Two panes save different sessions at once (both changes persist)', async ($, on) => {
     const sessions = [S('s1'), S('s2')]
     const a = await mountPane($, on, sessions, { selfName: 'zz' })
     const b = await mountPane($, on, sessions, { selfName: 'zz', store: a.store })
@@ -1803,7 +1803,7 @@ describe('14. persistence', () => {
     expect(a.store.get(`pref:${idOf('s1')}`)).toMatchObject({ isPinned: true })
     expect(a.store.get(`pref:${idOf('s2')}`)).toMatchObject({ isParked: true })
   })
-  test('AC-117b Two panes save the same entry at once (later save wins; other entries intact)', async ($, on) => {
+  test('Two panes save the same entry at once (later save wins; other entries intact)', async ($, on) => {
     const sessions = [S('s1'), S('s2')]
     const a = await mountPane($, on, sessions, { selfName: 'zz' })
     const b = await mountPane($, on, sessions, { selfName: 'zz', store: a.store })
@@ -1813,7 +1813,7 @@ describe('14. persistence', () => {
     expect(a.store.get(`pref:${idOf('s1')}`)).toMatchObject({ isParked: true })
     expect(a.store.get(`pref:${idOf('s2')}`)).toMatchObject({ isPinned: true })
   })
-  test('AC-118 Entries unseen 30 days (removed)', async ($, on) => {
+  test('Entries unseen 30 days (removed)', async ($, on) => {
     const store = new Map<string, unknown>([
       [`pref:${idOf('old')}`, { isPinned: true, seenAt: TUE_10 - 31 * DAY }],
       [`pref:${idOf('young')}`, { isPinned: true, seenAt: TUE_10 - 29 * DAY }],
@@ -1822,31 +1822,31 @@ describe('14. persistence', () => {
     expect(store.has(`pref:${idOf('old')}`)).toBe(false)
     expect(store.has(`pref:${idOf('young')}`)).toBe(true)
   })
-  test('AC-119 Corrupt state file (defaults plus a "saved layout was reset" note)', async ($, on) => {
-    // phase 2: AC-119 -- the corrupt value is a stored `layout` key, as the persistence contract names it.
+  test('Corrupt state file (defaults plus a "saved layout was reset" note)', async ($, on) => {
+    // phase 2: the corrupt value is a stored `layout` key, as the persistence contract names it.
     const store = new Map<string, unknown>([['layout', '{garbled']])
     const { ui } = await mountPane($, on, [S('mine')], { store })
     expect(store.has('layout')).toBe(false)
     expect(await hasText(ui, /saved layout was reset/)).toBe(true)
-    expect(await headerText(ui, 'active')).toMatch(/↕ ⌃$/) // amend 2026-10-18: AC-02, AC-68
+    expect(await headerText(ui, 'active')).toMatch(/↕ ⌃$/)
   })
 })
 
 // ---------------------------------------------------------------- Edge cases and dock checks
 describe('edge cases and dock checks', () => {
-  test('T-DOCK-2 109 columns or not fullscreen (pane inline above the prompt; no line wraps)', async ($, on) => {
+  test('109 columns or not fullscreen (pane inline above the prompt; no line wraps)', async ($, on) => {
     const { ui } = await mountPane($, on, [S('mine', { title: 'x'.repeat(300) })], {}, 109, 'inline')
     expect(widest(await rowText(ui, 'mine'))).toBeLessThanOrEqual(109)
-    // amend 2026-10-18: AC-41 -- the title is cut with an ellipsis and each line, icon included, is exactly 109 cells.
+    // the title is cut with an ellipsis and each line, icon included, is exactly 109 cells.
     const lines = (await rowText(ui, 'mine')).split('\n')
     expect(lines[1]).toContain('…')
     for (const line of lines) expect([...line].length).toBe(107)
   })
-  test('T-DOCK-3 Dock requests 44 columns', () => {
+  test('Dock requests 44 columns', () => {
     expect(PANE_COLUMNS).toBe(44)
   })
-  // amend 2026-10-18: T-DOCK-4 -- project icons, not creatures, are hidden below 30 columns.
-  test('T-DOCK-4 Dock narrower than 30 usable columns (icons hidden below 30; setting unchanged)', async ($, on) => {
+  // project icons, not creatures, are hidden below 30 columns.
+  test('Dock narrower than 30 usable columns (icons hidden below 30; setting unchanged)', async ($, on) => {
     const narrow = await mountPane($, on, [S('mine'), S('n', { status: 'waiting' })], {}, 29)
     const wide = await mountPane($, on, [S('mine'), S('n', { status: 'waiting' })], {}, 32)
     expect(await iconKindOf(wide.ui, 'n')).toBe('monogram')
@@ -1885,7 +1885,7 @@ describe('edge cases and dock checks', () => {
     const { ui, clock } = await mountPane($, on, sessions, { selfName: 'zz' })
     expect(await rowText(ui, 'a')).toContain('a')
     sessions[0]!.title = 'Generated later'
-    // phase 2: AC-108 -- a new title means the session wrote its transcript, so its registry updatedAt moves.
+    // phase 2: a new title means the session wrote its transcript, so its registry updatedAt moves.
     sessions[0]!.ageMs = -6000
     await clock.advance(6000); await ui.advance(6000)
     expect(await rowText(ui, 'a')).toContain('Generated later')
@@ -1910,7 +1910,7 @@ describe('edge cases and dock checks', () => {
     const { ui } = await mountPane($, on, [S('mine')], { agents: [AGENT('a1', 'running', undefined)] })
     expect((await ui.find({ key: 'view:a1' }))?.text).toContain('Explore')
   })
-  // amend 2026-10-18: edge "Next with only cross-app needs-you" -- withdrawn with Next.
+  // edge "Next with only cross-app needs-you" -- withdrawn with Next.
   test('Edge: Clock jump (snooze times unchanged; ages never negative)', async ($, on) => {
     const store = new Map<string, unknown>([[`pref:${idOf('a')}`, { snoozedUntil: TUE_10 + 5 * HOUR }]])
     // The clock cannot run backwards in the harness, so the jump is a session whose activity lies in the future.
@@ -1920,7 +1920,7 @@ describe('edge cases and dock checks', () => {
     // phase 2: positive twin -- a future time reads 'now'.
     expect((await rowText(ui, 'b')).split('\n')[0]).toMatch(/now\s*$/)
   })
-  // amend 2026-10-18: edge "Many sessions" -- the top line is withdrawn; every needs-you card still shows.
+  // edge "Many sessions" -- the top line is withdrawn; every needs-you card still shows.
   test('Edge: Many sessions (every needs-you card shows; no top line)', async ($, on) => {
     const many = Array.from({ length: 40 }, (_, i) => S(`s${i}`, { status: i < 3 ? 'waiting' : 'idle', ageMs: i * MIN }))
     const { ui } = await mountPane($, on, many, { selfName: 'zz' })
@@ -1928,9 +1928,9 @@ describe('edge cases and dock checks', () => {
     for (const name of ['s0', 's1', 's2']) expect(await rowText(ui, name)).toMatch(/Needs you/)
   })
 })
-// TODO(translator): Edge "Unicode-RTL / CJK width" needs the display-width function, which the harness does not expose; AC-15 covers ASCII only.
+// TODO(translator): Edge "Unicode-RTL / CJK width" needs the display-width function, which the harness does not expose; ASCII is covered elsewhere.
 // TODO(translator): Edge "Ghostty without automation permission" needs the adapter's permission-denied signal shape, which the plan does not fix.
-todo('Edge: Dock narrower than requested, drag resize redraws within one refresh (T-DOCK-5) -- layer live-Ghostty')
-todo('T-DOCK-1 Wide fullscreen terminal (pane docked at right at 110 columns) -- layer live-Ghostty')
-todo('Owner-visual: project icons, hills scene and whole-pane fidelity against sidebar-dark.jpeg -- layer Owner-visual') // amend 2026-10-18: AC-41
-todo('Owner-visual: colour art quality in dark and light themes -- layer Owner-visual')
+todo('Edge: Dock narrower than requested, drag resize redraws within one refresh -- layer live-Ghostty')
+todo('Wide fullscreen terminal (pane docked at right at 110 columns) -- layer live-Ghostty')
+todo('manual visual check: project icons, hills scene and whole-pane fidelity against pane-dark.jpeg -- layer manual visual check')
+todo('manual visual check: colour art quality in dark and light themes -- layer manual visual check')

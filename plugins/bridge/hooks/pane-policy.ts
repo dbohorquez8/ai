@@ -1,4 +1,4 @@
-// Pure logic of the sidebar pane: no `$`, so the tests call it directly.
+// Pure logic of the pane: no `$`, so the tests call it directly.
 
 import type { Pref, Row, ChildRow } from '../types'
 

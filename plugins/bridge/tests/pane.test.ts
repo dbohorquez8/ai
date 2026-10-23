@@ -2,12 +2,12 @@ import { describe, expect, mock, test, tier } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { childRowsOf, joined, prefIdOf, prefOf, REGISTRY_SCRIPT, REGISTRY_SEPARATOR, registryOf, resumeCommandOf, rowsOf, toggled, unavailableOf } from '../hooks/sidebar-policy'
+import { childRowsOf, joined, prefIdOf, prefOf, REGISTRY_SCRIPT, REGISTRY_SEPARATOR, registryOf, resumeCommandOf, rowsOf, toggled, unavailableOf } from '../hooks/pane-policy'
 import { BRANCH_SCRIPT, statusLabelOf, TITLE_SCRIPT } from '../hooks/card-policy'
 import { CMUX_SWITCH_SCRIPT, forgetCmuxCli, forgetKnown, OWN_ARGV } from '../hooks/focus-policy'
 import { PALETTES } from '../hooks/core/palette'
 import { snapToRasterGrid } from '../hooks/core/types'
-import { KEYS, loadStored, SIDEBAR_ARGS_HINT, sidebarSettingOf } from '../hooks/core/persist'
+import { KEYS, loadStored, PANE_ARGS_HINT, paneSettingOf } from '../hooks/core/persist'
 
 tier('builtin')
 
@@ -23,7 +23,7 @@ const LISTING = {
   ],
 }
 
-describe('sidebar policy', () => {
+describe('pane policy', () => {
   test('ListAgents rows: one per address, deduplicated, falling back from id to ref to name', () => {
     expect(rowsOf(LISTING).map(row => [row.id, row.name, row.kind, row.status])).toEqual([
       ['a1', 'alpha', 'sessions', 'running'],
@@ -77,21 +77,21 @@ describe('sidebar policy', () => {
 const LIVE = {
   listing: 'text',
   sections: [{ kind: 'sessions', total: 3, rows: [
-    { name: 'workspace-88', ref: '3507a9', status: 'busy' },
+    { name: 'webshop-88', ref: '3507a9', status: 'busy' },
     { name: "o'brien-proto", ref: '7f00aa', status: 'idle' },
     { name: 'stranger', ref: '99beef', status: 'idle' },
   ] }],
 }
 
 const REGISTRY = [
-  { pid: 1, startedAt: 100, sessionId: 'c3de9793-28c5-485f-9503-34c223907488', cwd: '/Users/x/Workspace', kind: 'interactive', name: 'workspace-88', status: 'busy' },
+  { pid: 1, startedAt: 100, sessionId: 'c3de9793-28c5-485f-9503-34c223907488', cwd: '/Users/x/Webshop', kind: 'interactive', name: 'webshop-88', status: 'busy' },
   { pid: 2, startedAt: 200, sessionId: '48e83fdf-5cd2-459c-8466-3adacbeb5572', cwd: "/Users/x/o'brien proto", kind: 'interactive', name: "o'brien-proto", status: 'idle' },
 ].map(one => JSON.stringify(one)).join(REGISTRY_SEPARATOR) + REGISTRY_SEPARATOR + '{broken' + REGISTRY_SEPARATOR + '{"pid":3}' + REGISTRY_SEPARATOR
 
 describe('session registry', () => {
   test('the registry reads each file; a broken or partial one is skipped', () => {
     expect(registryOf(REGISTRY).map(one => [one.name, one.sessionId, one.pid])).toEqual([
-      ['workspace-88', 'c3de9793-28c5-485f-9503-34c223907488', 1],
+      ['webshop-88', 'c3de9793-28c5-485f-9503-34c223907488', 1],
       ["o'brien-proto", '48e83fdf-5cd2-459c-8466-3adacbeb5572', 2],
     ])
     expect(registryOf('')).toEqual([])
@@ -99,7 +99,7 @@ describe('session registry', () => {
 
   test('rows join the registry by name; the resume line cds into the quoted directory first', () => {
     const [mine, quoted, stranger] = joined(rowsOf(LIVE), registryOf(REGISTRY))
-    expect(resumeCommandOf(mine!)).toBe("cd '/Users/x/Workspace' && claude --resume c3de9793-28c5-485f-9503-34c223907488")
+    expect(resumeCommandOf(mine!)).toBe("cd '/Users/x/Webshop' && claude --resume c3de9793-28c5-485f-9503-34c223907488")
     expect(resumeCommandOf(quoted!)).toBe("cd '/Users/x/o'\\''brien proto' && claude --resume 48e83fdf-5cd2-459c-8466-3adacbeb5572")
     expect(prefIdOf(mine!)).toBe('c3de9793-28c5-485f-9503-34c223907488')
     expect(stranger!.id).toBe('99beef')
@@ -108,7 +108,7 @@ describe('session registry', () => {
   })
 
   test('a name two registry files share matches neither: no guessed id', () => {
-    const twice = registryOf(REGISTRY + JSON.stringify({ sessionId: 'other', name: 'workspace-88', cwd: '/y' }))
+    const twice = registryOf(REGISTRY + JSON.stringify({ sessionId: 'other', name: 'webshop-88', cwd: '/y' }))
     expect(joined(rowsOf(LIVE), twice)[0]!.sessionId).toBeUndefined()
   })
 })
@@ -117,7 +117,7 @@ type World = { now?: number; titleOut?: (args: readonly string[]) => string; bra
 
 const engine = (on: On, world: World = {}) => {
   const store = world.store ?? new Map<string, unknown>()
-  // amend 2026-10-18: AC-08a -- these cards were written with the Working shelf on; it is a setting now, off by default.
+  // these cards were written with the Working shelf on; it is a setting now, off by default.
   if (!store.has('setting:workingShelf')) store.set('setting:workingShelf', true)
   mock.clock(on, { now: world.now ?? 0 })
   on('store.get', ($s, e) => ({ value: store.get(e.key) }))
@@ -162,14 +162,14 @@ const PANE_PROPS = {
 const openKeysOf = async (ui: { findAll: (q: { type?: string }) => Promise<{ key: string | undefined }[]> }) =>
   (await ui.findAll({ type: 'Button' })).map(one => one.key ?? '').filter(key => key.startsWith('open:'))
 
-describe('sidebar pane', () => {
+describe('pane', () => {
   test('lists sessions and subagents; pin moves a row first, park moves it to a collapsed group', async ($, on) => {
     const store = engine(on)
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/repo' } as never)
     await $.command.run({ command: 'bridge', args: '' } as never)
     const ui = await $.ui.mount({ plugin: 'bridge', surface: 'terminal', component: 'Pane', props: PANE_PROPS as never, requestId: 'bridge' })
 
-    // phase 2: AC-52, AC-53a -- Active (needs-you first) before Working.
+    // phase 2: Active (needs-you first) before Working.
     expect(await openKeysOf(ui)).toEqual(['open:c3', 'open:b2', 'open:r9', 'open:a1'])
     expect((await ui.find({ key: 'view:sub1' }))?.text).toMatch(/Scan repo/)
 
@@ -179,7 +179,7 @@ describe('sidebar pane', () => {
 
     await ui.press({ key: 'park:b2' })
     expect(await openKeysOf(ui)).toEqual(['open:c3', 'open:r9', 'open:a1'])
-    expect((await ui.find({ key: 'shelf:parked' }))?.text).toMatch(/^Parked \(1\) ─+ ⌄$/) // amend 2026-10-18: AC-02
+    expect((await ui.find({ key: 'shelf:parked' }))?.text).toMatch(/^Parked \(1\) ─+ ⌄$/)
 
     await ui.press({ key: 'shelf:parked' })
     expect(await openKeysOf(ui)).toEqual(['open:c3', 'open:r9', 'open:a1', 'open:b2'])
@@ -194,7 +194,7 @@ describe('sidebar pane', () => {
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/repo' } as never)
     await $.command.run({ command: 'bridge', args: '' } as never)
     const ui = await $.ui.mount({ plugin: 'bridge', surface: 'terminal', component: 'Pane', props: PANE_PROPS as never, requestId: 'bridge' })
-    // phase 2: AC-28, AC-29 -- the own card is marked by its fill, other cards have none.
+    // phase 2: the own card is marked by its fill, other cards have none.
     expect((await ui.find({ key: 'row:3507a9' }))?.props.backgroundColor).toBe(snapToRasterGrid(PALETTES.dark.fill)) // live capture v2: own-card fill snaps to the Raster grid
     expect((await ui.find({ key: 'row:7f00aa' }))?.props.backgroundColor).toBeUndefined()
     await ui.press({ key: 'open:7f00aa' })
@@ -210,7 +210,7 @@ describe('sidebar pane', () => {
     const ui = await $.ui.mount({ plugin: 'bridge', surface: 'terminal', component: 'Pane', props: PANE_PROPS as never, requestId: 'bridge' })
     expect(await ui.find({ text: /Session registry unreadable/ })).toBeDefined()
     await ui.press({ key: 'open:3507a9' })
-    expect(await ui.find({ text: 'workspace-88: resume unavailable (session id unknown)' })).toBeDefined()
+    expect(await ui.find({ text: 'webshop-88: resume unavailable (session id unknown)' })).toBeDefined()
     expect(await ui.find({ text: /3507a9/ })).toBeUndefined()
   })
 
@@ -220,7 +220,7 @@ describe('sidebar pane', () => {
     await $.command.run({ command: 'bridge', args: '' } as never)
     const ui = await $.ui.mount({ plugin: 'bridge', surface: 'terminal', component: 'Pane', props: PANE_PROPS as never, requestId: 'bridge' })
     const row = await ui.find({ key: 'row:7f00aa' })
-    // phase 2: AC-26, AC-56 -- the idle slot is the age; the actions read Pin, Snooze, Park, Settle.
+    // phase 2: the idle slot is the age; the actions read Pin, Snooze, Park, Settle.
     expect((await ui.find({ key: 'open:7f00aa' }))?.text).not.toMatch(/now|Pin|Park/)
     expect(row?.text).toMatch(/now/)
     expect((await ui.find({ key: 'pin:7f00aa' }))?.text).toBe('Pin')
@@ -236,7 +236,7 @@ describe('sidebar pane', () => {
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/repo' } as never)
     await $.command.run({ command: 'bridge', args: '' } as never)
     const ui = await $.ui.mount({ plugin: 'bridge', surface: 'terminal', component: 'Pane', props: PANE_PROPS as never, requestId: 'bridge' })
-    // phase 2: AC-63, AC-76 -- a parked session that works is back on its shelf (Working); needs-you first in Active.
+    // phase 2: a parked session that works is back on its shelf (Working); needs-you first in Active.
     expect(await openKeysOf(ui)).toEqual(['open:r9', 'open:c3', 'open:b2', 'open:a1'])
   })
 
@@ -291,11 +291,11 @@ describe('row press focuses the hosting tab', () => {
     await ui.press({ key: 'open:3507a9' })
     return { ui, refreshed }
   }
-  const LINE = "cd '/Users/x/Workspace' && claude --resume c3de9793-28c5-485f-9503-34c223907488"
+  const LINE = "cd '/Users/x/Webshop' && claude --resume c3de9793-28c5-485f-9503-34c223907488"
 
   test('the refresh probes the registry pids in one batched call', async ($, on) => {
     const { refreshed } = await pressIn($, on, cmuxWorld({ CMUX_WORKSPACE_ID: 'W0', CMUX_BUNDLED_CLI_PATH: '/c/cmux' }))
-    // amend 2026-10-19: review P2-a -- the cross-check now runs once before the first refresh.
+    // the cross-check now runs once before the first refresh.
     expect(refreshed.filter(argv => argv[0] !== 'claude')).toEqual([['ps', 'eww', '-o', PROBE, '-p', '1,2']])
   })
 
@@ -315,15 +315,15 @@ describe('row press focuses the hosting tab', () => {
     expect(world.ran).toEqual([])
     expect(world.copies).toEqual([])
     expect(world.toasts).toEqual([])
-    expect(await ui.find({ text: 'workspace-88 runs in cmux' })).toBeDefined()
+    expect(await ui.find({ text: 'webshop-88 runs in cmux' })).toBeDefined()
     expect(await ui.find({ text: /claude --resume/ })).toBeUndefined()
   })
 
   test('a row in another app is dimmed and tagged with its app, inside the spaced row', async ($, on) => {
     const { ui } = await pressIn($, on, cmuxWorld({ TERM_PROGRAM: 'ghostty' }))
-    // phase 2: AC-18, AC-86 -- the working one-liner reads project, title, slot; the app is named by the press note.
-    expect((await ui.find({ key: 'row:3507a9' }))?.text).toMatch(/^W  Workspace workspace-.*\s+Working now$/)
-    expect((await ui.find({ key: 'note' }))?.text).toBe('workspace-88 runs in cmux')
+    // phase 2: the working one-liner reads project, title, slot; the app is named by the press note.
+    expect((await ui.find({ key: 'row:3507a9' }))?.text).toMatch(/^W  Webshop webshop-.*\s+Working now$/)
+    expect((await ui.find({ key: 'note' }))?.text).toBe('webshop-88 runs in cmux')
     expect((await ui.find({ key: 'open:3507a9' }))?.props.dimColor).toBe(true)
   })
 
@@ -332,7 +332,7 @@ describe('row press focuses the hosting tab', () => {
     const { ui } = await pressIn($, on, world)
     expect(world.ran).toEqual([])
     expect(world.copies).toEqual([])
-    expect(await ui.find({ text: 'workspace-88 runs in Ghostty' })).toBeDefined()
+    expect(await ui.find({ text: 'webshop-88 runs in Ghostty' })).toBeDefined()
   })
 
   test('a dead cmux pid fails the chained call: the note under the list says so, the line is copied, no toast', async ($, on) => {
@@ -349,7 +349,7 @@ describe('row press focuses the hosting tab', () => {
     await pressIn($, on, world)
     expect(world.ran.length).toBe(1)
     expect(world.ran[0]![0]).toBe('osascript')
-    expect(world.ran[0]![2]).toContain('"/Users/x/Workspace"')
+    expect(world.ran[0]![2]).toContain('"/Users/x/Webshop"')
     expect(world.copies).toEqual([])
     expect(world.toasts).toEqual([])
   })
@@ -359,14 +359,14 @@ describe('row press focuses the hosting tab', () => {
     const { ui } = await pressIn($, on, world)
     expect(world.copies).toEqual([LINE])
     expect(world.toasts).toEqual([])
-    // phase 2: AC-89b
+    // phase 2
     expect(await ui.find({ text: `Ghostty: the folder is shared by 2 tabs. Copied: ${LINE}` })).toBeDefined()
   })
 
   test('a dead target keeps the fallback: the press probes once, then copies and says so inline', async ($, on) => {
     const world = worldOf('', () => undefined)
     const { ui } = await pressIn($, on, world)
-    // phase 2: AC-96 -- with no terminal recognised for the pane, nothing is probed; the line is copied and the note says why.
+    // phase 2: with no terminal recognised for the pane, nothing is probed; the line is copied and the note says why.
     expect(world.ran).toEqual([])
     expect(world.copies.length).toBe(1)
     expect(world.toasts).toEqual([])
@@ -374,14 +374,14 @@ describe('row press focuses the hosting tab', () => {
   })
 })
 
-describe('/bridge sound (AC-G7)', () => {
-  test('AC-G7: sound on and off store the setting and reply with a label; a bad value is an error', () => {
-    expect(sidebarSettingOf('sound off')).toEqual({ key: KEYS.sound, value: false, label: 'Needs-you chime: off' })
-    expect(sidebarSettingOf(' Sound ON ')).toEqual({ key: KEYS.sound, value: true, label: 'Needs-you chime: on' })
-    for (const bad of ['sound', 'sound loud', 'sound on off']) expect(sidebarSettingOf(bad)).toEqual({ error: `Unknown setting. Use: /bridge ${SIDEBAR_ARGS_HINT}` })
-    expect(SIDEBAR_ARGS_HINT).toContain('sound on|off')
+describe('/bridge sound', () => {
+  test('sound on and off store the setting and reply with a label; a bad value is an error', () => {
+    expect(paneSettingOf('sound off')).toEqual({ key: KEYS.sound, value: false, label: 'Needs-you chime: off' })
+    expect(paneSettingOf(' Sound ON ')).toEqual({ key: KEYS.sound, value: true, label: 'Needs-you chime: on' })
+    for (const bad of ['sound', 'sound loud', 'sound on off']) expect(paneSettingOf(bad)).toEqual({ error: `Unknown setting. Use: /bridge ${PANE_ARGS_HINT}` })
+    expect(PANE_ARGS_HINT).toContain('sound on|off')
   })
-  test('AC-G7: sound is on by default; a stored boolean is read back; anything else resets', () => {
+  test('sound is on by default; a stored boolean is read back; anything else resets', () => {
     expect(loadStored(new Map()).stored.settings.sound).toBeUndefined()
     expect(loadStored(new Map([[KEYS.sound, false]])).stored.settings.sound).toBe(false)
     expect(loadStored(new Map([[KEYS.sound, true]])).stored.settings.sound).toBe(true)

@@ -84,11 +84,11 @@ declare module 'claude-code' {
       titles: Record<string, Title>
       /** Session id to its short model name. */
       models: Record<string, string>
-      /** Session id to when its last turn ended on a question to the Owner (AC-21a). */
+      /** Session id to when its last turn ended on a question to the person. */
       asks: Record<string, number>
-      /** Session id to its last-response context tokens and full model id (AC-94). */
+      /** Session id to its last-response context tokens and full model id. */
       contexts: Record<string, { tokens: number; model: string }>
-      /** Full model id to the context window Claude Code reported for it (AC-94). */
+      /** Full model id to the context window Claude Code reported for it. */
       windows: Record<string, number>
       /** Directory to its branch and project. */
       places: Record<string, Place>
@@ -96,7 +96,7 @@ declare module 'claude-code' {
       prs: Record<string, number>
       /** PrefId to the status word it shows and since when. */
       since: Record<string, Since>
-      /** The bell wobble step (AC-22). */
+      /** The bell wobble step. */
       bell: 0 | 1 | 2
       /** The prefId whose snooze menu is open, else ''. */
       snoozeOpen: string

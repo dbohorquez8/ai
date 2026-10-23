@@ -191,9 +191,9 @@ describe('cmux', () => {
   test('tree --all --json joins a surface by tty', () => {
     const tree = JSON.stringify({ windows: [{ workspaces: [
       { ref: 'workspace:1', panes: [{ surfaces: [{ ref: 'surface:1', tty: 'ttys001' }] }] },
-      { id: 'WS-2', ref: 'workspace:2', panes: [{ surfaces: [{ id: 'SF-9', ref: 'surface:9', tty: '/dev/ttys009' }] }] },
+      { id: 'APP-2', ref: 'workspace:2', panes: [{ surfaces: [{ id: 'SF-9', ref: 'surface:9', tty: '/dev/ttys009' }] }] },
     ] }] })
-    expect(cmuxSurfaceOf(tree, '/dev/ttys009')).toEqual({ workspace: 'WS-2', surface: 'SF-9' })
+    expect(cmuxSurfaceOf(tree, '/dev/ttys009')).toEqual({ workspace: 'APP-2', surface: 'SF-9' })
     expect(cmuxSurfaceOf(tree, '/dev/ttys001')).toEqual({ workspace: 'workspace:1', surface: 'surface:1' })
     expect(cmuxSurfaceOf(tree, '/dev/ttys404')).toBeUndefined()
     expect(cmuxSurfaceOf('not json', '/dev/ttys001')).toBeUndefined()

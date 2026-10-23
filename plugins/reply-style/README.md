@@ -39,11 +39,17 @@ The same reply without the mod shows the markers as plain text:
 
 A reply that asks nothing ends with one of three words. They differ in whether Claude's turn is over and whether anything still runs.
 
-| Line | Looks like | Claude's turn | Still running |
-| --- | --- | --- | --- |
-| **Waiting** | <img src="assets/state-waiting.png" alt="A green bar before the closing sentence" height="24"> | Over. | Yes: work Claude started, such as a build, a test run or a child agent. Claude reports when it finishes. |
-| **Working** | <img src="assets/state-working.png" alt="A yellow bar before the closing sentence" height="24"> | Not over; a progress update. | Claude itself. |
-| **Done** | <img src="assets/state-done.png" alt="A plain bar before the closing sentence" height="24"> | Over. | Nothing. |
+**Waiting**: Claude's turn is over, but work it started still runs, such as a build, a test run or a child agent. Claude reports when it finishes. The sentence sits behind a green bar.
+
+![A reply's closing sentence behind a green bar: the full test suite is running in the background, and the fix is pushed when it passes](assets/state-waiting.png)
+
+**Working**: Claude's turn is not over; the reply is a progress update and Claude keeps going. The sentence sits behind a yellow bar.
+
+![A reply's closing sentence behind a yellow bar: the last step is rewriting the order table, with another report at the next update](assets/state-working.png)
+
+**Done**: Claude's turn is over and nothing still runs. The sentence sits behind a plain bar.
+
+![A reply's closing sentence behind a plain bar: the fix is merged and nothing is left](assets/state-done.png)
 
 A reply with a Needs You block has no closing line, because the next step is yours.
 

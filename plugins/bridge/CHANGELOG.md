@@ -68,8 +68,6 @@ The redesigned look and behaviour, in three layers (core, drawing, terminal adap
 - Ghostty focus now tells two tabs in one folder apart by their title when it can.
 - Saved state is one store entry per session plus one per setting, so two panes changing different
   sessions both persist. An unreadable saved value resets to its default and says so.
-- A layer checker, `tools/check-bridge-layers.sh`, fails the build when core or drawing code
-  imports across a layer or names a terminal.
 - Third-party notices now list every adapted file.
 
 ## 1.0.0

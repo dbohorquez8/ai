@@ -1,8 +1,8 @@
 // What the pane keeps in the plugin store, one key per entry, and how a stored value is read back.
 // Pure: the caller lists and reads the keys; this validates them. A value that fails its
-// schema is named in `resetKeys`, and its default is used (AC-119).
+// schema is named in `resetKeys`, and its default is used.
 
-import { PREF_PREFIX } from '../sidebar-policy'
+import { PREF_PREFIX } from '../pane-policy'
 import { DEFAULT_COLLAPSED, SHELF_ORDER } from './types'
 import type { Entry, GlyphSetting, Layout, Settings, ShelfId, SortMode, Stored } from './types'
 
@@ -82,7 +82,7 @@ export const loadStored = (raw: ReadonlyMap<string, unknown>): { stored: Stored;
     }
     return parsed
   }
-  // 'manual' was a mode until the Owner removed it; it reads as the default, without the reset note.
+  // 'manual' was a mode until the person removed it; it reads as the default, without the reset note.
   const sort = read<SortMode>(KEYS.sort, value => (value === 'manual' ? 'recent' : SORTS.find(one => one === value)), 'recent')
   const layout = read<Layout>(KEYS.layout, layoutOf, { v: 1, active: [], pinned: [] })
   const collapsed = read<Record<ShelfId, boolean>>(KEYS.shelves, collapsedOf, { ...DEFAULT_COLLAPSED })
@@ -117,16 +117,16 @@ export const softLimitOf = (raw: string): number | undefined => {
 }
 
 /** The `/bridge` argument forms, shown after the command name. */
-export const SIDEBAR_ARGS_HINT = 'icons on|off · working-shelf on|off · glyphs auto|nerd|plain · theme auto|light|dark · tickets WS-,AID-|off · soft-limit 100k|off · check-after 15|off · sound on|off'
+export const PANE_ARGS_HINT = 'icons on|off · working-shelf on|off · glyphs auto|nerd|plain · theme auto|light|dark · tickets APP-,OPS-|off · soft-limit 100k|off · check-after 15|off · sound on|off'
 
 /**
- * A `/bridge` setting from its typed arguments (settings stay off the sidebar, so the pane has no
+ * A `/bridge` setting from its typed arguments (settings stay off the pane, so the pane has no
  * settings rows): `icons on|off`, `working-shelf on|off`, `theme auto|light|dark`, and `tickets` with a
  * comma-separated prefix list (the ticket prefixes) or `off`, and `soft-limit` with a token count
  * (the soft limit) or `off`, and `sound on|off` (the needs-you chime). Empty arguments are no setting (the
  * command opens the pane); anything else is an error naming the forms.
  */
-export const sidebarSettingOf = (args: string):
+export const paneSettingOf = (args: string):
   | { key: typeof KEYS.icons | typeof KEYS.workingShelf | typeof KEYS.sound; value: boolean; label: string }
   | { key: typeof KEYS.theme; value: 'auto' | 'light' | 'dark'; label: string }
   | { key: typeof KEYS.glyphs; value: GlyphSetting; label: string }
@@ -157,10 +157,10 @@ export const sidebarSettingOf = (args: string):
     const minutes = /^\d+$/.test(value) ? Number(value) : undefined
     if (minutes !== undefined && Number.isSafeInteger(minutes) && minutes > 0) return { key: KEYS.checkAfter, value: minutes, label: `Check after: ${minutes} minutes` }
   }
-  return { error: `Unknown setting. Use: /bridge ${SIDEBAR_ARGS_HINT}` }
+  return { error: `Unknown setting. Use: /bridge ${PANE_ARGS_HINT}` }
 }
 
-/** Where a model's context window is kept, as Claude Code reported it to a pane on that model (AC-94). */
+/** Where a model's context window is kept, as Claude Code reported it to a pane on that model. */
 export const WINDOW_PREFIX = 'window:'
 
 /** The stored context windows by full model id; a value that is not a positive whole number is left out. */

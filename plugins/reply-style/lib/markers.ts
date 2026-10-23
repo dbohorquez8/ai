@@ -1,5 +1,4 @@
-// Canonical presentation core for the layered reply style (WS-104/WS-105, contract C1).
-// Vendored byte-for-byte into bb-plugin-reply-style/lib and ai/plugins/reply-style/lib (dbohorquez8/ai).
+// Presentation core for the layered reply style: finds the reply markers and lays out their blocks.
 // Pure TypeScript: no imports, no DOM, no Node.
 
 export const READ_LEAD = "Read";

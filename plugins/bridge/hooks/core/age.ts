@@ -6,7 +6,7 @@ const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
-/** "now", "5m", "2h", "3d", "2w": floored, days until 14 days, then weeks (AC-26). */
+/** "now", "5m", "2h", "3d", "2w": floored, days until 14 days, then weeks. */
 export const ageLabel = (since: number, now: number): string => {
   const elapsed = now - since
   if (elapsed < MINUTE) return 'now'

@@ -30,14 +30,14 @@ export type Session = {
   statusSince: number        // when the winning status began
   sharedSince?: number       // the registry's status time (else the listing's start), alike in every pane; claims a chime
   sharedRaw?: string         // the registry's own status word, before the merge; absent with no registry entry
-  reason?: string            // waitingFor, else 'question' when the last turn asked the Owner
-  askedAt?: number           // when the last turn ended on a question to the Owner (askedAtOf)
-  title: string              // ai title, else last prompt, else name (AC-17)
+  reason?: string            // waitingFor, else 'question' when the last turn asked the person
+  askedAt?: number           // when the last turn ended on a question to the person (askedAtOf)
+  title: string              // ai title, else last prompt, else name
   project: string
   branch?: string
   model?: string             // short family: 'opus' | 'sonnet' | 'haiku' | 'fable' | last id segment
   pr?: number
-  contextPercent?: number    // own: session usage; others: registry contextPercent only (AC-94)
+  contextPercent?: number    // own: session usage; others: registry contextPercent only
   contextTokens?: number     // tokens in the context window, when a source gives them; colours the percentage against the soft limit
   contextWindow?: number     // the model's context window: own from session usage, others the window reported for their model; sets the default soft limit
   failedAt?: number          // own only: when its last turn ended on an API error (StopFailure)
@@ -94,7 +94,7 @@ export const snapToRasterGrid = (hex: string): string =>
   `#${[1, 3, 5].map(i => Math.round(Number.parseInt(hex.slice(i, i + 2), 16) / 17).toString(16).repeat(2)).join('')}`
 
 /**
- * The project icon at the start of a card's first line (AC-41 to AC-46): the project's picture (a PNG file, 2 x 1 cells),
+ * The project icon at the start of a card's first line: the project's picture (a PNG file, 2 x 1 cells),
  * else its monogram (`text` is exactly 2 cells: the letter on the project colour, `ink` reaching 4.5:1 on it), else none.
  */
 export type CardIcon =

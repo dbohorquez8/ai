@@ -25,7 +25,7 @@ export const WORKING_CAPTIONS: readonly string[] = [
   "Plants watered, agents busy, you're free.",
 ]
 
-/** The index of the next working caption, never the one shown last time (AC-49). */
+/** The index of the next working caption, never the one shown last time. */
 export const nextCaption = (previous: number | undefined, random: () => number): number => {
   const count = WORKING_CAPTIONS.length
   const draw = (range: number) => Math.min(range - 1, Math.max(0, Math.floor(random() * range)))

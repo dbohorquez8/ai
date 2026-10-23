@@ -2,10 +2,10 @@ import { describe, expect, mock, test, tier } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { TestBody } from 'claude-code/testing'
 
-import { REGISTRY_SCRIPT, REGISTRY_SEPARATOR } from '../hooks/sidebar-policy'
-import type { RegistryEntry } from '../hooks/sidebar-policy'
+import { REGISTRY_SCRIPT, REGISTRY_SEPARATOR } from '../hooks/pane-policy'
+import type { RegistryEntry } from '../hooks/pane-policy'
 import {
-  askedAtOf, asksOwner, badgeOf, contextTokensOf, BRANCH_SCRIPT, collapsedOf, colorsOf, EMPTY_ACTIVE, FIELD, fit, ITEM, itemsOf, mergedTitle, projectNameOf,
+  askedAtOf, asksPerson, badgeOf, contextTokensOf, BRANCH_SCRIPT, collapsedOf, colorsOf, EMPTY_ACTIVE, FIELD, fit, ITEM, itemsOf, mergedTitle, projectNameOf,
   shelfHeaderOf, shelvesOf, sinceOf, staleDirsOf, staleTitlesOf, statusLabelOf, statusTextOf, TITLE_SCRIPT, titleOf, transcriptOf,
 } from '../hooks/card-policy'
 import { relativeTimeLabel } from '../hooks/relative-time'
@@ -112,10 +112,10 @@ describe('card policy', () => {
     expect(titleOf('{"type":"ai-ti', JSON.stringify({ type: 'last-prompt', leafUuid: 'x' }))).toEqual({})
     expect(itemsOf(`a${FIELD}b${ITEM}${FIELD}${ITEM}`)).toEqual([['a', 'b'], ['', '']])
   })
-  // amend 2026-10-19: AC-17 -- a /rename title (custom-title record) wins over the AI title
+  // a /rename title (custom-title record) wins over the AI title
   test('titles: a /rename title is read before the AI title', () => {
-    const custom = JSON.stringify({ type: 'custom-title', customTitle: ' WS-84 sidebar soft limit ' })
-    expect(titleOf(custom, '')).toEqual({ title: 'WS-84 sidebar soft limit', isAi: true })
+    const custom = JSON.stringify({ type: 'custom-title', customTitle: ' APP-84 pane soft limit ' })
+    expect(titleOf(custom, '')).toEqual({ title: 'APP-84 pane soft limit', isAi: true })
   })
 
   test('the transcript path follows the project slug; an odd session id is never read', () => {
@@ -143,7 +143,7 @@ describe('card policy', () => {
   })
 
   test('a worktree belongs to its main checkout\'s project', () => {
-    expect(projectNameOf('/r/Workspace/.worktrees/ws-84', '/r/Workspace/.git')).toBe('Workspace')
+    expect(projectNameOf('/r/Webshop/.worktrees/feat-84', '/r/Webshop/.git')).toBe('Webshop')
     expect(projectNameOf('/r/bare/wt', '/r/thing.git')).toBe('thing')
     expect(projectNameOf('/r/plain/', undefined)).toBe('plain')
   })
@@ -160,14 +160,14 @@ const SELF = 'aaaaaaaa-0000-0000-0000-000000000001'
 const IDLE = 'dddddddd-0000-0000-0000-000000000002'
 const WAIT = 'cccccccc-0000-0000-0000-000000000003'
 const entries = (idleAt = NOW - 2 * HOUR) => [
-  { pid: 11, startedAt: 1, sessionId: SELF, cwd: '/r/Workspace', kind: 'interactive', name: 'ws-self', status: 'busy', updatedAt: NOW - 5 * MINUTE, statusUpdatedAt: NOW - 5 * MINUTE },
-  { pid: 12, startedAt: 2, sessionId: IDLE, cwd: '/r/AI-Docs', kind: 'interactive', name: 'docs-1', status: 'idle', updatedAt: idleAt, statusUpdatedAt: idleAt },
-  { pid: 13, startedAt: 3, sessionId: WAIT, cwd: '/r/Workspace/.worktrees/ws-84', kind: 'interactive', name: 'wt-1', status: 'waiting', waitingFor: 'input needed', updatedAt: NOW - MINUTE, statusUpdatedAt: NOW - MINUTE },
+  { pid: 11, startedAt: 1, sessionId: SELF, cwd: '/r/Webshop', kind: 'interactive', name: 'ws-self', status: 'busy', updatedAt: NOW - 5 * MINUTE, statusUpdatedAt: NOW - 5 * MINUTE },
+  { pid: 12, startedAt: 2, sessionId: IDLE, cwd: '/r/Api-Docs', kind: 'interactive', name: 'docs-1', status: 'idle', updatedAt: idleAt, statusUpdatedAt: idleAt },
+  { pid: 13, startedAt: 3, sessionId: WAIT, cwd: '/r/Webshop/.worktrees/feat-84', kind: 'interactive', name: 'wt-1', status: 'waiting', waitingFor: 'input needed', updatedAt: NOW - MINUTE, statusUpdatedAt: NOW - MINUTE },
 ]
 const registryText = (list: object[]) => list.map(one => JSON.stringify(one)).join(REGISTRY_SEPARATOR) + REGISTRY_SEPARATOR
 const LISTING = { listing: 'text', sections: [{ kind: 'sessions', total: 2, rows: [{ name: 'docs-1', ref: 'r2', status: 'idle' }, { name: 'wt-1', ref: 'r3', status: 'busy' }] }] }
 const TITLES: Record<string, string> = { [SELF]: 'Fix the cards', [IDLE]: 'Docs title' }
-const BRANCHES: Record<string, string> = { '/r/Workspace': 'main\u001f/r/Workspace/.git', '/r/AI-Docs': 'main\u001f/r/AI-Docs/.git', '/r/Workspace/.worktrees/ws-84': 'ws-84\u001f/r/Workspace/.git' }
+const BRANCHES: Record<string, string> = { '/r/Webshop': 'main\u001f/r/Webshop/.git', '/r/Api-Docs': 'main\u001f/r/Api-Docs/.git', '/r/Webshop/.worktrees/feat-84': 'feat-84\u001f/r/Webshop/.git' }
 const AGENTS = [
   { id: 'sub1', description: 'Scan repo', type: 'Explore', status: 'running' },
   { id: 'sub2', description: 'Write notes', type: 'general-purpose', status: 'completed' },
@@ -177,7 +177,7 @@ type World = { listing?: unknown; registry?: string; agents?: unknown[]; store?:
 
 const engine = (on: On, world: World) => {
   const store = world.store ?? new Map<string, unknown>()
-  // amend 2026-10-18: AC-08a -- these cards were written with the Working shelf on; it is a setting now, off by default.
+  // these cards were written with the Working shelf on; it is a setting now, off by default.
   if (!store.has('setting:workingShelf')) store.set('setting:workingShelf', true)
   mock.clock(on, { now: NOW })
   on('store.get', ($s, e) => ({ value: store.get(e.key) }))
@@ -224,18 +224,18 @@ const mounted = async ($: Parameters<TestBody>[0], on: On, world: World) => {
 const openKeysOf = async (ui: { findAll: (q: { type?: string }) => Promise<{ key: string | undefined }[]> }) =>
   (await ui.findAll({ type: 'Button' })).map(one => one.key ?? '').filter(key => key.startsWith('open:'))
 
-describe('questions to the Owner (needs-you from the transcript)', () => {
-  test('asksOwner: a closing question, a request phrase or an A/B choice list asks; a plain report does not', () => {
-    expect(asksOwner('I checked the logs.\n\nShould we ship it now?')).toBe(true)
-    expect(asksOwner('Two ways to go.\n\n**Which one do you prefer?**')).toBe(true)
-    expect(asksOwner('The fix is ready. Let me know if you want the PR opened.')).toBe(true)
-    expect(asksOwner('Pick one:\n\n**(A) Ship** — fast.\n\n**(B) Wait** — safer.')).toBe(true)
-    expect(asksOwner('🔵 Do you prefer tabs or spaces?\n\n🔴 NEEDS YOU: reply with tabs or spaces.')).toBe(true)
-    expect(asksOwner('Do you want the PR?\n\nNotes follow.\n\nAll done.')).toBe(false)
-    expect(asksOwner('Done. All 443 tests pass and the branch is pushed.')).toBe(false)
-    expect(asksOwner('Why did it fail? A stale cache.\n\nFixed and pushed.')).toBe(false)
-    expect(asksOwner('Here is the check:\n\n```sh\nread -p "continue?"\n```')).toBe(false)
-    expect(asksOwner('')).toBe(false)
+describe('questions to the person (needs-you from the transcript)', () => {
+  test('asksPerson: a closing question, a request phrase or an A/B choice list asks; a plain report does not', () => {
+    expect(asksPerson('I checked the logs.\n\nShould we ship it now?')).toBe(true)
+    expect(asksPerson('Two ways to go.\n\n**Which one do you prefer?**')).toBe(true)
+    expect(asksPerson('The fix is ready. Let me know if you want the PR opened.')).toBe(true)
+    expect(asksPerson('Pick one:\n\n**(A) Ship** — fast.\n\n**(B) Wait** — safer.')).toBe(true)
+    expect(asksPerson('🔵 Do you prefer tabs or spaces?\n\n🔴 NEEDS YOU: reply with tabs or spaces.')).toBe(true)
+    expect(asksPerson('Do you want the PR?\n\nNotes follow.\n\nAll done.')).toBe(false)
+    expect(asksPerson('Done. All 443 tests pass and the branch is pushed.')).toBe(false)
+    expect(asksPerson('Why did it fail? A stale cache.\n\nFixed and pushed.')).toBe(false)
+    expect(asksPerson('Here is the check:\n\n```sh\nread -p "continue?"\n```')).toBe(false)
+    expect(asksPerson('')).toBe(false)
   })
   const line = (content: unknown[], type = 'assistant') => JSON.stringify({ type, timestamp: '2026-10-18T20:00:00.000Z', message: { role: type, content } })
   test('askedAtOf: an assistant text-only entry that asks gives its time; a tool call, a user entry or a report gives none', () => {
@@ -249,7 +249,7 @@ describe('questions to the Owner (needs-you from the transcript)', () => {
   })
 })
 
-describe('context tokens from the transcript (AC-94)', () => {
+describe('context tokens from the transcript', () => {
   test('contextTokensOf sums uncached, cache-written and cache-read input; the first count of each kind wins', () => {
     expect(contextTokensOf('"input_tokens":2 "cache_creation_input_tokens":1265 "cache_read_input_tokens":362786 ')).toBe(364053)
     expect(contextTokensOf('"input_tokens":5 "cache_read_input_tokens":10 "input_tokens":999 ')).toBe(15)
@@ -264,47 +264,47 @@ describe('context tokens from the transcript (AC-94)', () => {
 describe('session cards', () => {
   test('shelves group the cards, with counts; this session joins from the registry and sits in Working', async ($, on) => {
     const { ui } = await mounted($, on, { reads: [] })
-    // phase 2: AC-04, AC-52, AC-76 -- Active is drawn before Working, needs-you first; an open shelf has no count.
+    // phase 2: Active is drawn before Working, needs-you first; an open shelf has no count.
     expect(await openKeysOf(ui)).toEqual(['open:r3', 'open:r2', `open:${SELF}`])
-    expect((await ui.find({ key: 'shelf:working' }))?.text).toMatch(/^Working ─+ ⌃$/) // amend 2026-10-18: AC-02
-    expect((await ui.find({ key: 'header:active' }))?.text).toMatch(/^Active ─+ ↕ ⌃$/) // amend 2026-10-18: AC-02, AC-68
+    expect((await ui.find({ key: 'shelf:working' }))?.text).toMatch(/^Working ─+ ⌃$/)
+    expect((await ui.find({ key: 'header:active' }))?.text).toMatch(/^Active ─+ ↕ ⌃$/)
     expect(await ui.find({ key: 'shelf:pinned' })).toBeUndefined()
     expect(await ui.find({ key: 'shelf:parked' })).toBeUndefined()
   })
 
-  // amend 2026-10-18: AC-10 -- the project name is muted; its colour is on the monogram.
+  // the project name is muted; its colour is on the monogram.
   test('a working card is one line: highlight bar, coloured monogram, muted project, title, badge, "Working · 5m"', async ($, on) => {
     const { ui } = await mounted($, on, { reads: [] })
     const row = await ui.find({ key: `row:${SELF}` })
-    // phase 2: AC-18, AC-20, AC-28 -- the one-liner reads project, title, then the slot; the own card is marked by its fill.
-    expect(row?.text).toMatch(/^W  Workspace Fix the cards\s*Working 5m$/) // amend 2026-10-18: AC-44
+    // phase 2: the one-liner reads project, title, then the slot; the own card is marked by its fill.
+    expect(row?.text).toMatch(/^W  Webshop Fix the cards\s*Working 5m$/)
     expect(row?.props.backgroundColor).toBe(snapToRasterGrid(PALETTES.dark.fill)) // live capture v2: own-card fill snaps to the Raster grid
-    const project = (await ui.findAll({ type: 'Text' })).find(one => one.text === 'Workspace')
-    expect(project?.props.dimColor).toBe(true) // amend 2026-10-18: AC-10
-    expect(project?.props.color).toBeUndefined() // amend 2026-10-18: AC-10 -- (the first 'Workspace' run is another card's)
-    // amend 2026-10-19: Owner demo -- plain text on the own-card fill takes the palette ink, so it reads when the theme and the terminal disagree.
-    expect((await ui.findAll({ type: 'Text' })).some(one => one.text === 'Workspace' && one.props.color === PALETTES.dark.ink && one.props.dimColor === true)).toBe(true)
+    const project = (await ui.findAll({ type: 'Text' })).find(one => one.text === 'Webshop')
+    expect(project?.props.dimColor).toBe(true)
+    expect(project?.props.color).toBeUndefined() // (the first 'Webshop' run is another card's)
+    // plain text on the own-card fill takes the palette ink, so it reads when the theme and the terminal disagree.
+    expect((await ui.findAll({ type: 'Text' })).some(one => one.text === 'Webshop' && one.props.color === PALETTES.dark.ink && one.props.dimColor === true)).toBe(true)
     expect((await ui.findAll({ type: 'Text' })).find(one => one.text.trim() === 'Fix the cards')?.props.color).toBe(PALETTES.dark.ink)
-    expect((await ui.findAll({ type: 'Text' })).find(one => one.text === 'W ')?.props.backgroundColor).toBe(projectColorsOf(['Workspace', 'AI-Docs'], 'dark').get('Workspace')) // amend 2026-10-18: AC-10
+    expect((await ui.findAll({ type: 'Text' })).find(one => one.text === 'W ')?.props.backgroundColor).toBe(projectColorsOf(['Webshop', 'Api-Docs'], 'dark').get('Webshop'))
   })
 
   test('an idle card is three lines: project and "Idle · 2h", the title, then branch and age', async ($, on) => {
     const { ui } = await mounted($, on, { reads: [] })
     const row = await ui.find({ key: 'row:r2' })
-    // phase 2: AC-09, AC-12, AC-26 -- the idle slot is the age alone; line 3 is the branch.
-    expect(row?.text).toMatch(/AI-Docs\s+2hDocs title\s+⎇ main\s*$/)
+    // phase 2: the idle slot is the age alone; line 3 is the branch.
+    expect(row?.text).toMatch(/Api-Docs\s+2hDocs title\s+⎇ main\s*$/)
     expect((await ui.find({ key: 'open:r2' }))?.text).toBe('Docs title')
-    expect((await ui.findAll({ type: 'Text' })).find(one => one.text === 'AI-Docs')?.props.dimColor).toBe(true) // amend 2026-10-18: AC-10
-    expect((await ui.findAll({ type: 'Text' })).find(one => one.text === 'AI-Docs')?.props.color).toBeUndefined() // amend 2026-10-18: AC-10
-    expect((await ui.findAll({ type: 'Text' })).find(one => one.text === 'A ')?.props.backgroundColor).toBe(projectColorsOf(['Workspace', 'AI-Docs'], 'dark').get('AI-Docs')) // amend 2026-10-18: AC-10
+    expect((await ui.findAll({ type: 'Text' })).find(one => one.text === 'Api-Docs')?.props.dimColor).toBe(true)
+    expect((await ui.findAll({ type: 'Text' })).find(one => one.text === 'Api-Docs')?.props.color).toBeUndefined()
+    expect((await ui.findAll({ type: 'Text' })).find(one => one.text === 'A ')?.props.backgroundColor).toBe(projectColorsOf(['Webshop', 'Api-Docs'], 'dark').get('Api-Docs'))
   })
 
   test('a waiting card reads "Needs you" as a pill; a worktree shows its main project and its branch; no title falls back to the name', async ($, on) => {
     const { ui } = await mounted($, on, { reads: [] })
-    // phase 2: AC-21 -- the pill is palette hex on the red pill fill with the bell.
-    // amend 2026-10-18: AC-23, AC-24 -- line 3 is the branch alone; no reason is drawn.
-    expect((await ui.find({ key: 'row:r3' }))?.text).toMatch(/Workspace\s+▐![\u00a0]+Needs you\u00a0▌wt-1\s+⎇ ws-84\s*$/)
-    expect((await ui.find({ key: 'row:r3' }))?.text).not.toMatch(/input needed/) // amend 2026-10-18: AC-24
+    // phase 2: the pill is palette hex on the red pill fill with the bell.
+    // line 3 is the branch alone; no reason is drawn.
+    expect((await ui.find({ key: 'row:r3' }))?.text).toMatch(/Webshop\s+▐![\u00a0]+Needs you\u00a0▌wt-1\s+⎇ feat-84\s*$/)
+    expect((await ui.find({ key: 'row:r3' }))?.text).not.toMatch(/input needed/)
     const pill = (await ui.findAll({ type: 'Text' })).find(one => one.props.backgroundColor === PALETTES.dark.pill.red.bg)
     expect(pill?.text).toMatch(/^![\u00a0]+Needs you\u00a0$/)
     expect(pill?.props.color).toBe(PALETTES.dark.pill.red.fg)
@@ -326,14 +326,14 @@ describe('session cards', () => {
     // phase 2: L5 -- the shelves key holds every shelf.
     expect(store.get('shelves')).toEqual({ ...DEFAULT_COLLAPSED, active: true })
     expect(await openKeysOf(ui)).toEqual([`open:${SELF}`])
-    expect((await ui.find({ key: 'shelf:active' }))?.text).toMatch(/^Active \(2\) ─+ ⌄$/) // amend 2026-10-18: AC-02
+    expect((await ui.find({ key: 'shelf:active' }))?.text).toMatch(/^Active \(2\) ─+ ⌄$/)
     await ui.press({ key: 'shelf:active' })
     expect(store.get('shelves')).toEqual({ ...DEFAULT_COLLAPSED, active: false })
   })
 
   test('a stored collapse comes back at session start', async ($, on) => {
     const { ui } = await mounted($, on, { reads: [], store: new Map<string, unknown>([['shelves', { working: true }]]) })
-    // phase 2: AC-76 -- needs-you first in Active.
+    // phase 2: needs-you first in Active.
     expect(await openKeysOf(ui)).toEqual(['open:r3', 'open:r2'])
   })
 
@@ -341,23 +341,23 @@ describe('session cards', () => {
     const world: World = { reads: [] }
     await mounted($, on, world)
     expect(world.reads).toEqual([
-      ['titles', `full:-r-Workspace/${SELF}`, `full:-r-AI-Docs/${IDLE}`, `full:-r-Workspace--worktrees-ws-84/${WAIT}`],
-      ['branches', '/r/Workspace', '/r/AI-Docs', '/r/Workspace/.worktrees/ws-84'],
+      ['titles', `full:-r-Webshop/${SELF}`, `full:-r-Api-Docs/${IDLE}`, `full:-r-Webshop--worktrees-feat-84/${WAIT}`],
+      ['branches', '/r/Webshop', '/r/Api-Docs', '/r/Webshop/.worktrees/feat-84'],
     ])
     world.reads.length = 0
     await $.command.run({ command: 'bridge', args: '' } as never)
     expect(world.reads).toEqual([])
     world.registry = registryText(entries(NOW - HOUR))
     await $.command.run({ command: 'bridge', args: '' } as never)
-    expect(world.reads).toEqual([['titles', `tail:-r-AI-Docs/${IDLE}`], ['branches', '/r/AI-Docs']])
+    expect(world.reads).toEqual([['titles', `tail:-r-Api-Docs/${IDLE}`], ['branches', '/r/Api-Docs']])
   })
 
-  // amend 2026-10-18: AC-47 -- an empty Active shelf has no header; only the scene shows.
+  // an empty Active shelf has no header; only the scene shows.
   test('no sessions: no Active header, only the all-clear scene', async ($, on) => {
     const { ui } = await mounted($, on, { reads: [], listing: { listing: 'text', sections: [] }, registry: '', agents: [] })
-    // phase 2: AC-47b -- the caption is centred under the scene.
-    expect(await ui.find({ key: 'shelf:active' })).toBeUndefined() // amend 2026-10-18: AC-47
-    expect(await ui.find({ key: 'header:active' })).toBeUndefined() // amend 2026-10-18: AC-47
+    // phase 2: the caption is centred under the scene.
+    expect(await ui.find({ key: 'shelf:active' })).toBeUndefined()
+    expect(await ui.find({ key: 'header:active' })).toBeUndefined()
     expect((await ui.find({ key: 'scene-caption' }))?.text).toContain(EMPTY_ACTIVE)
     expect(await openKeysOf(ui)).toEqual([])
   })

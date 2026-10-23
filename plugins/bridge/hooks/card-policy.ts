@@ -4,8 +4,8 @@
 // relative-time.ts and project-colors.ts, which are copied (see their headers).
 
 import type { ChildRow, Place, Pref, Row, Since, Title } from '../types'
-import type { RegistryEntry } from './sidebar-policy'
-import { prefIdOf } from './sidebar-policy'
+import type { RegistryEntry } from './pane-policy'
+import { prefIdOf } from './pane-policy'
 import { relativeTimeLabel } from './relative-time'
 import { projectColorsById } from './project-colors'
 
@@ -174,18 +174,18 @@ export const titleOf = (aiLine: string, promptLine: string): { title?: string; i
   return line ? { title: line } : {}
 }
 
-/** Request phrases that ask the Owner without a question mark. */
+/** Request phrases that ask the person without a question mark. */
 const ASKING = /\b(should i|shall i|do you want|would you like|which (one |option )?do you prefer|let me know|your call|please confirm|can you confirm|reply with|tell me (which|whether|if))\b/i
 /** A closing choice list: lines led by `(A)`, `A)` or `Option A`, then the same for B. */
 const CHOICES = /(^|\n)\W*(\(A\)|A\)|Option A\b)[\s\S]*\n\W*(\(B\)|B\)|Option B\b)/
 
 /**
- * Whether a finished turn's text asks the Owner something: with code blocks left out, one of the last
+ * Whether a finished turn's text asks the person something: with code blocks left out, one of the last
  * two paragraphs ends in `?` or holds a request phrase (a closing status line often follows the
  * question), or the text closes on an A/B choice list. A heuristic (no session marks its questions):
  * a miss still leaves the card Done.
  */
-export const asksOwner = (text: string): boolean => {
+export const asksPerson = (text: string): boolean => {
   const prose = text.replace(/```[\s\S]*?```/g, '').trim()
   if (!prose) return false
   const paragraphs = prose.split(/\n\s*\n/).map(one => one.trim()).filter(Boolean)
@@ -195,8 +195,8 @@ export const asksOwner = (text: string): boolean => {
 }
 
 /**
- * When the session asked the Owner, from its last user or assistant entry: an assistant entry whose
- * blocks are text only (no tool call) and whose text asks (`asksOwner`); undefined otherwise.
+ * When the session asked the person, from its last user or assistant entry: an assistant entry whose
+ * blocks are text only (no tool call) and whose text asks (`asksPerson`); undefined otherwise.
  */
 export const askedAtOf = (lastLine: string): number | undefined => {
   const entry = parsed(lastLine)
@@ -207,7 +207,7 @@ export const askedAtOf = (lastLine: string): number | undefined => {
   if (blocks.some(block => block.type !== 'text' && block.type !== 'thinking')) return undefined
   const text = blocks.map(block => (block.type === 'text' && typeof block.text === 'string' ? block.text : '')).join('\n')
   const at = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : Number.NaN
-  return asksOwner(text) && Number.isFinite(at) ? at : undefined
+  return asksPerson(text) && Number.isFinite(at) ? at : undefined
 }
 
 /**

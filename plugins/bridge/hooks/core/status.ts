@@ -9,7 +9,7 @@ const wordOf = (raw: string) => raw.trim().toLowerCase()
 /** Whether a raw status word means a turn is running now: busy, running or working. */
 export const isWorkingRaw = (raw: string): boolean => isWorking(raw)
 
-/** Whether a raw status word means the session waits for the Owner. */
+/** Whether a raw status word means the session waits for the person. */
 export const isWaitingRaw = (raw: string): boolean => wordOf(raw) === 'waiting'
 
 /**
@@ -42,7 +42,7 @@ export const isFailedRaw = (raw: string): boolean => wordOf(raw) === 'failed' ||
 
 /**
  * A card shows Needs you, Working, Failed, Background, Check?, Done (finished and not yet seen) or Idle. A turn that
- * ended on a question (`askedAt`) needs the Owner until the card is pressed after it. The own session
+ * ended on a question (`askedAt`) needs the person until the card is pressed after it. The own session
  * adds two facts: `failedAt`, its last turn ended on an API error (Failed until pressed; a later
  * successful stop clears it), and `background`, its background tasks in flight (Check? while it is
  * otherwise idle and the list is not empty, and also while its status word still says working after its
@@ -66,7 +66,7 @@ export const statusOf = (
   const hasBackground = own.background !== undefined && own.background > 0 && (own.isTurnOver === true || (own.isTurnOver !== false && !isWorkingRaw(raw)))
   if (isWorkingRaw(raw) && !hasBackground) return 'working'
   if (askedAt !== undefined && askedAt > seen) return 'needs-you'
-  // The Owner's order once the turn is over: Check? before Failed, Failed before Background.
+  // The person's order once the turn is over: Check? before Failed, Failed before Background.
   const isSilent = checkAfterMinutes > 0 && now !== undefined && _since > 0 && now - _since >= checkAfterMinutes * 60_000
   if (hasBackground && isSilent) return 'check'
   if (isFailedRaw(raw)) return 'failed'

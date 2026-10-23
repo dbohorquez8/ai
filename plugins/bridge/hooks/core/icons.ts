@@ -40,7 +40,7 @@ export const PROJECT_ICON_CANDIDATES = [
  * follows, so names that share a short prefix read as their own letters
  * rather than a column of identical ones.
  */
-const GENERIC_WORDS = new Set(['bb', 'plugin', 'the', 'my'])
+const GENERIC_WORDS = new Set(['plugin', 'the', 'my'])
 
 const words = (name: string): string[] => {
   // An npm scope or a path prefix says where the project lives, not what it is.

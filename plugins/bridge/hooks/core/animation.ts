@@ -1,11 +1,11 @@
-// The animation policy: when anything animates and which rasters change on a tick (L8, AC-22, AC-111 to AC-113).
+// The animation policy: when anything animates and which rasters change on a tick.
 
 import { sceneCells, spinnerCells } from './sprites'
 import { PALETTES } from './palette'
 import { hexToColor } from './types'
 import type { CardView, PaneView, ThemeMode } from './types'
 
-/** Five frames a second: each frame costs a worker hop and a blit, and 10 put the pane over its CPU budget (AC-110). */
+/** Five frames a second: each frame costs a worker hop and a blit, and 10 put the pane over its CPU budget. */
 export const TICK_MS = 200
 export const SCENE_FRAME_MS = 600
 export const BELL_PERIOD_MS = 4000

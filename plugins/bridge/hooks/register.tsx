@@ -3,8 +3,8 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { IconLookup, Row, Since, Title } from '../types'
 import type { Place as GitPlace } from '../types'
-import { joined, REFRESH_MS, REGISTRY_SCRIPT, registryOf, resumeCommandOf, rowsOf, unavailableOf, withSelf } from './sidebar-policy'
-import type { Listing, RegistryEntry } from './sidebar-policy'
+import { joined, REFRESH_MS, REGISTRY_SCRIPT, registryOf, resumeCommandOf, rowsOf, unavailableOf, withSelf } from './pane-policy'
+import type { Listing, RegistryEntry } from './pane-policy'
 import { askedAtOf, BRANCH_SCRIPT, contextTokensOf, itemsOf, mergedTitle, projectNameOf, staleDirsOf, staleTitlesOf, TITLE_SCRIPT, titleOf } from './card-policy'
 import { elsewhereMessageOf, focusMessageOf, forgetKnown, HOST_VARS, isSamePlace, knownPlaceOf, placeLabelOf, refreshKnown } from './adapters/shared'
 import type { CapsEnv, Place as TermPlace, Ran } from './adapters/shared'
@@ -21,7 +21,7 @@ import { applyAction, isWoke, offeredActions, reconcile } from './core/lifecycle
 import type { Action } from './core/lifecycle'
 import { moved } from './core/order'
 import { PALETTES, projectColorsOf, themeModeOf } from './core/palette'
-import { DEFAULT_CHECK_AFTER_MINUTES, KEYS, loadStored, PREF_PREFIX, prunedKeys, SIDEBAR_ARGS_HINT, sidebarSettingOf, WINDOW_PREFIX, windowsOf } from './core/persist'
+import { DEFAULT_CHECK_AFTER_MINUTES, KEYS, loadStored, PREF_PREFIX, prunedKeys, PANE_ARGS_HINT, paneSettingOf, WINDOW_PREFIX, windowsOf } from './core/persist'
 import { glyphModeOf } from './adapters/glyphs'
 import { AGENTS_ARGV, AGENTS_MS, agentsJsonOf, modelIdOf, modelOf, PR_FIRST_MS, PR_MS, sessionsOf } from './core/sources'
 import type { Listed } from './core/sources'
@@ -168,7 +168,7 @@ const readItems = async ($: EngineInterface, script: string, args: readonly stri
   }
 }
 
-/** Title, prompt, model, open question and context tokens of each session whose registry `updatedAt` moved, in one process (AC-107, AC-108). */
+/** Title, prompt, model, open question and context tokens of each session whose registry `updatedAt` moved, in one process. */
 const readTitles = async ($: EngineInterface, entries: readonly RegistryEntry[]) => {
   const stale = staleTitlesOf(entries, await read($, titles))
   if (stale.length === 0) return
@@ -220,7 +220,7 @@ const readPlaces = async ($: EngineInterface, entries: readonly RegistryEntry[])
 }
 
 /**
- * A project folder's icon (AC-42): the first candidate file that exists and is at most 1 MB, as a 64 px PNG in the cache. A PNG
+ * A project folder's icon: the first candidate file that exists and is at most 1 MB, as a 64 px PNG in the cache. A PNG
  * already cached for the same file and modification time is used as is; otherwise one process converts it.
  */
 const lookupIcon = async ($: EngineInterface, dir: string, root: string, at: number): Promise<IconLookup> => {
@@ -238,7 +238,7 @@ const lookupIcon = async ($: EngineInterface, dir: string, root: string, at: num
 
 /**
  * Looks up the icon of each project folder not looked up in the last 10 minutes, only while icons are on and the
- * terminal draws pictures; a folder whose lookup stands costs no file or process call (AC-109).
+ * terminal draws pictures; a folder whose lookup stands costs no file or process call.
  */
 const readIcons = async ($: EngineInterface, at: number) => {
   const dir = iconDir
@@ -276,7 +276,7 @@ const markAway = async ($: EngineInterface, listedRows: readonly Row[], entries:
   await update($, away, old => keep(old, tags))
 }
 
-/** This session's subagents as children, each with the time it has shown its tag; finished ones stay listed (AC-31b, AC-92). */
+/** This session's subagents as children, each with the time it has shown its tag; finished ones stay listed. */
 const readChildren = async ($: EngineInterface, at: number) => {
   let agents: Array<Record<string, unknown>> = []
   try {
@@ -385,7 +385,7 @@ const noteBackground = async ($: EngineInterface, tasks: readonly TaskSummary[] 
   })
 }
 
-/** The own session's live context percentage, and its model's window for other sessions on that model (AC-94). */
+/** The own session's live context percentage, and its model's window for other sessions on that model. */
 const readSelfContext = async ($: EngineInterface) => {
   try {
     const { percent, window } = (await $.session.usage()).context
@@ -405,7 +405,7 @@ const readSelfContext = async ($: EngineInterface) => {
 
 // ---------------------------------------------------------------- the store
 
-/** Reads every key, validates it, deletes what failed (with the reset note) and publishes the result (AC-116, AC-119). */
+/** Reads every key, validates it, deletes what failed (with the reset note) and publishes the result. */
 const loadStore = async ($: EngineInterface) => {
   const raw = new Map<string, unknown>()
   for (const key of await $.store.keys()) raw.set(key, await $.store.get(key))
@@ -490,7 +490,7 @@ const refreshOnce = async ($: EngineInterface) => {
   await update($, notice, old => keep(old, note))
   await readChildren($, at)
   await readSelfContext($)
-  // The clock moves only when it changes what is drawn (ages turn over by the minute), so a quiet refresh redraws nothing (AC-110).
+  // The clock moves only when it changes what is drawn (ages turn over by the minute), so a quiet refresh redraws nothing.
   // A turn can restart an own card's status clock without changing its raw word. Its cached view still has the
   // old start, so comparing that view alone would leave Check? drawn until the next minute boundary.
   const turnAt = await read($, selfTurnAt)
@@ -549,7 +549,7 @@ const reconcileStore = async ($: EngineInterface, at: number) => {
 }
 
 /**
- * The needs-you chime (AC-G6): one sound when a card changes into Needs you or Failed. The entries are
+ * The needs-you chime: one sound when a card changes into Needs you or Failed. The entries are
  * the ones before this refresh's writes, so a card put away still reads put away. Every session runs the
  * pane, so the change is claimed in the shared store under `chime:<prefId>` and only the first claim plays.
  */
@@ -561,7 +561,7 @@ const chimeFor = async ($: EngineInterface, sessions: readonly Session[], status
   let isDue = false
   for (const s of sessions) {
     const next = statuses[s.prefId] ?? 'idle'
-    // A card first seen after the first refresh comes from idle, so one that appears needing the Owner chimes.
+    // A card first seen after the first refresh comes from idle, so one that appears needing the person chimes.
     const before = prev === undefined ? undefined : (prev[s.prefId] ?? 'idle')
     if (prev === undefined || before === next || (next !== 'needs-you' && next !== 'failed')) continue
     const key = `${CHIME_PREFIX}${s.prefId}`
@@ -599,7 +599,7 @@ const readTheme = async ($: EngineInterface) => {
   await update($, mode, old => keep(old, themeModeOf(configTheme, theme)))
 }
 
-/** One `gh` per distinct (cwd, branch), at most 10 (AC-114a); a missing or signed-out `gh` stops lookups (AC-114b). */
+/** One `gh` per distinct (cwd, branch), at most 10; a missing or signed-out `gh` stops lookups. */
 const readPrs = async ($: EngineInterface) => {
   if (isPrOff) return
   const pairs = new Map<string, { cwd: string; branch: string }>()
@@ -809,7 +809,7 @@ export const register: Register = on => {
     tick = 0
     forgetKnown()
     forgetCmuxCli()
-    await $.command.register({ name: 'bridge', description: 'Open the Bridge sessions pane, or change a Bridge setting', argumentHint: SIDEBAR_ARGS_HINT })
+    await $.command.register({ name: 'bridge', description: 'Open the Bridge sessions pane, or change a Bridge setting', argumentHint: PANE_ARGS_HINT })
     // A new session starts from nothing: what the last one read and derived is dropped.
     await update($, rows, () => [])
     await update($, registry, () => [])
@@ -853,7 +853,7 @@ export const register: Register = on => {
     await update($, snoozeOpen, () => '')
     await update($, sortOpen, () => false)
     await readTheme($)
-    // The cross-check is read before the first refresh, so the first-refresh guard covers its status words (AC-G6).
+    // The cross-check is read before the first refresh, so the first-refresh guard covers its status words.
     void readAgents($).finally(() => refresh($))
     timers.push($.clock.every(REFRESH_MS, () => void refresh($)))
     timers.push($.clock.every(AGENTS_MS, () => void readAgents($)))
@@ -876,7 +876,7 @@ export const register: Register = on => {
     const done = await next(e)
     if (e.agentId === undefined) {
       await noteTurnOver($, true).catch(() => undefined)
-      // The own Failed, from an event no managed plugin sends past this one: an API error marks it, an answer clears it (AC-G1).
+      // The own Failed, from an event no managed plugin sends past this one: an API error marks it, an answer clears it.
       await noteTurnEnd($, e.reason).catch(() => undefined)
     }
     return done
@@ -930,19 +930,19 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     const id = e.origin?.kind === 'task-notification' ? endedTaskIdOf(e.text) : undefined
     if (id) await noteEnded($, id).catch(() => undefined)
-    // The person's own next prompt clears Failed: an interrupted turn ends with no answer (AC-G1).
+    // The person's own next prompt clears Failed: an interrupted turn ends with no answer.
     if (e.origin?.kind === 'composer' && !e.command) await update($, selfFailedAt, old => (old === null ? old : null)).catch(() => undefined)
     return next(e)
   })
 
-  // A turn that ends well clears an earlier API failure; one that ends on an API error marks the card Failed (AC-G1).
+  // A turn that ends well clears an earlier API failure; one that ends on an API error marks the card Failed.
   on('classic.Stop', async ($, e, next) => {
     await noteBackground($, e.background_tasks).catch(() => undefined)
     await noteTurnOver($, true).catch(() => undefined)
     await update($, selfFailedAt, old => (old === null ? old : null)).catch(() => undefined)
     return next(e)
   })
-  // A new turn clears it too: an interrupted turn has no Stop (AC-G1).
+  // A new turn clears it too: an interrupted turn has no Stop.
   on('classic.UserPromptSubmit', async ($, e, next) => {
     await update($, selfFailedAt, old => (old === null ? old : null)).catch(() => undefined)
     return next(e)
@@ -958,7 +958,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'bridge' }, async ($, e) => {
-    const setting = sidebarSettingOf(e.args)
+    const setting = paneSettingOf(e.args)
     if (setting && 'error' in setting) return { text: setting.error }
     if (setting) {
       await $.store.set(setting.key, setting.value)
@@ -1005,7 +1005,7 @@ export const register: Register = on => {
     const shownCaps = await read($, caps)
     const step = await read($, bell)
     let view = viewOf(caption)
-    // A new working caption each time the working scene appears after not being shown (AC-49).
+    // A new working caption each time the working scene appears after not being shown.
     const isWorkingScene = view.scene?.kind === 'working'
     if (isWorkingScene && !wasWorkingScene) {
       caption = nextCaption(kept.caption, Math.random)

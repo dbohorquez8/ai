@@ -1,4 +1,4 @@
-// Moving a pinned card by an offset, with the shelf orders of the sidebar.
+// Moving a pinned card by an offset, with the shelf orders of the pane.
 // Portions adapted from MIT-licensed code; Copyright (c) 2026 Michael Yong, Copyright (c) 2026 Yusuf Akbulut; design reference Copyright (c) 2026 T3 Tools Inc. See THIRD_PARTY_NOTICES.md.
 
 import type { Entry, Layout, Session, ShelfId, SortMode, Status } from './types'
@@ -20,7 +20,7 @@ const nameOf = (card: Card) => card.s.project.toLowerCase()
 
 /**
  * The prefIds of a shelf in drawn order. Active puts the cards that need the
- * Owner first, the longest waiting on top, then the Failed cards the same way,
+ * Person first, the longest waiting on top, then the Failed cards the same way,
  * then follows the sort mode; Pinned
  * follows the saved layout; Settled is the latest settled first; the other
  * shelves are newest activity first. Ties break by prefId.

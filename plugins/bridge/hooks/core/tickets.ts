@@ -6,7 +6,7 @@ export type TicketMatch = { id: string; source: 'title' | 'branch'; titleRest: s
 
 const BOUNDARY_CHAR = /[\p{L}\p{N}]/u
 
-/** A prefix entered without its trailing hyphen ("WS") also matches the hyphenated form ("WS-19"). */
+/** A prefix entered without its trailing hyphen ("APP") also matches the hyphenated form ("APP-19"). */
 const prefixForms = (prefix: string): string[] => (prefix.endsWith('-') ? [prefix] : [`${prefix}-`, prefix])
 
 const idAt = (text: string, start: number, sortedPrefixes: readonly string[]): string | null => {

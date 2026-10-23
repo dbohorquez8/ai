@@ -323,7 +323,7 @@ export interface Adapter {
 /** The pane's own environment as the capability rules read it: the host variables and `CAPABILITY_VARS`. */
 export type CapsEnv = HostEnv & { COLORTERM?: string; KITTY_WINDOW_ID?: string; CLAUDE_CODE_FORCE_TERMINAL_IMAGES?: string }
 
-/** Pictures are never drawn through a tmux layer (AC-101). */
+/** Pictures are never drawn through a tmux layer. */
 export const isUnderTmux = (env: HostEnv) => Boolean(env.TMUX)
 
 /** 24-bit colour is on when `COLORTERM` says so; every host reads it the same way. */

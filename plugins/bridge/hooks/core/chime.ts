@@ -1,6 +1,6 @@
 // The needs-you chime: one short sound rendered here as a WAV (no binary asset), and the rule for when a
 // card change plays it. The tone math is adapted from Chime 0.1.0 (MIT License,
-// Copyright (c) 2026 Chime contributors; see THIRD_PARTY_NOTICES.md), its "minimal-question" sound (Owner, 2026-10-19: the glass one was too much). Pure: no `$`.
+// Copyright (c) 2026 Chime contributors; see THIRD_PARTY_NOTICES.md), its "minimal-question" sound (the glass one was too much). Pure: no `$`.
 
 import type { Entry, Settings, Status } from './types'
 

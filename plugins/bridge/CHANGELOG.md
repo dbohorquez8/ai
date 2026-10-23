@@ -10,7 +10,7 @@
   ICO wider or taller than 1024 pixels is not converted (the card shows the project's letter). SVGs are
   checked by size only. Cached icons are rebuilt once.
 - The plugin is now Bridge: id `bridge`, command `/bridge`, pane title `Bridge`. Settings saved under the
-  old `koombea-sidebar` name are not carried over and start from their defaults.
+  previous plugin name are not carried over and start from their defaults.
 - Project icons replace the per-card creatures: each card's first line starts with the project's
   picture (the first of a fixed list of candidate files, cached as a 64-pixel PNG) where the terminal draws pictures,
   else a monogram on the project color. The setting is now `Show project icons` (`setting:icons`).
@@ -68,7 +68,7 @@ The redesigned look and behaviour, in three layers (core, drawing, terminal adap
 - Ghostty focus now tells two tabs in one folder apart by their title when it can.
 - Saved state is one store entry per session plus one per setting, so two panes changing different
   sessions both persist. An unreadable saved value resets to its default and says so.
-- A layer checker, `tools/check-sidebar-layers.sh`, fails the build when core or drawing code
+- A layer checker, `tools/check-bridge-layers.sh`, fails the build when core or drawing code
   imports across a layer or names a terminal.
 - Third-party notices now list every adapted file.
 

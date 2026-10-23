@@ -1,4 +1,4 @@
-// The spinner and scene art; the working scene's creature (AC-48) is drawn from the poses. Poses are 4 x 6 pixels (4 columns x 3 rows), modelled on the working-scene
+// The spinner and scene art; the working scene's creature is drawn from the poses. Poses are 4 x 6 pixels (4 columns x 3 rows), modelled on the working-scene
 // typist of the design (a round head with a sprout, eyes that blink, a bobbing head).
 // Portions adapted from MIT-licensed code; Copyright (c) 2026 Michael Yong, Copyright (c) 2026 Yusuf Akbulut. See THIRD_PARTY_NOTICES.md.
 

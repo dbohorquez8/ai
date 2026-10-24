@@ -19,7 +19,7 @@ export const CARD_EDGE_BOTTOM = '▀'
 /** One terminal cell on each side of an inset pane row stays outside its exact-width content. */
 export const ROW_HORIZONTAL_PADDING = 1
 
-export type CardInput = { s: Session; status: Status; woke: boolean; snoozedUntil?: number; children: readonly Child[]; now: number; bell: 0 | 1 | 2; palette: Palette; projectColor: string; glyphMode: GlyphMode; tickets?: readonly string[]; softLimit?: number }
+export type CardInput = { s: Session; status: Status; woke: boolean; snoozedUntil?: number; children: readonly Child[]; now: number; bell: 0 | 1 | 2; palette: Palette; projectColor: string; glyphMode: GlyphMode; tickets?: readonly string[]; softLimit?: number; waiting?: true }
 
 type TextSeg = Extract<Seg, { kind: 'text' }>
 type Style = Partial<Omit<TextSeg, 'kind' | 'text'>>
@@ -100,7 +100,7 @@ const bellSlotOf = (mode: GlyphMode, frame: 0 | 1 | 2): string => {
  * The status slot at the right end of line 1 (I-6): the Needs you bell pill, the red Failed pill, yellow
  * Background with the age, orange Check? with the age, the Working spinner, the gray Done pill, else the age. It may be empty when no time is known.
  */
-const statusSlotOf = (status: Status, since: number, now: number, palette: Palette, mode: GlyphMode, selected: boolean, woke = false, bell: 0 | 1 | 2 = 0, snoozedUntil?: number): Seg[] => {
+const statusSlotOf = (status: Status, since: number, now: number, palette: Palette, mode: GlyphMode, selected: boolean, woke = false, bell: 0 | 1 | 2 = 0, snoozedUntil?: number, waiting = false): Seg[] => {
   const age = since > 0 ? ageLabel(since, now) : undefined
   if (snoozedUntil !== undefined) return [text(timeLeftLabel(snoozedUntil, now), { dim: true, role: 'status' })]
   if (status === 'needs-you') {
@@ -117,12 +117,13 @@ const statusSlotOf = (status: Status, since: number, now: number, palette: Palet
     const lead = woke ? [text('Woke ', { color: palette.text.green, role: 'status' })] : []
     return [...lead, { kind: 'spinner' }, text(' Working', { color: palette.text.yellow, role: 'status' }), ...(age ? [text(` ${age}`, { dim: true, role: 'status' })] : [])]
   }
+  if (waiting) return [text('Waiting', { color: palette.text.green, role: 'status' }), ...(age ? [text(` ${age}`, { dim: true, role: 'status' })] : [])]
   if (woke) return [text('Woke', { color: palette.text.green, role: 'status' })]
   if (status === 'done') return pillOf('✓ Done ', palette.pill.gray, mode, selected)
   return age ? [text(age, { dim: true, role: 'status' })] : []
 }
 
-const slotOf = (c: CardInput): Seg[] => statusSlotOf(c.status, c.s.statusSince, c.now, c.palette, c.glyphMode, c.s.isSelf, c.woke, c.bell, c.snoozedUntil)
+const slotOf = (c: CardInput): Seg[] => statusSlotOf(c.status, c.s.statusSince, c.now, c.palette, c.glyphMode, c.s.isSelf, c.woke, c.bell, c.snoozedUntil, c.waiting === true)
 
 /** The project name in muted text, as drawn with project colours off (the default); the icon keeps the colour. */
 const projectOf = (_c: CardInput, project: string): Seg => text(project, { dim: true, role: 'project' })

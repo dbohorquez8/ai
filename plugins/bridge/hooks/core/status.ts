@@ -1,7 +1,7 @@
 // Status words from the session sources, merged and mapped onto the card statuses.
 // Pure: no `$`, no terminal facts.
 
-import type { Status } from './types'
+import type { Child, Status } from './types'
 import { isWorking } from '../card-policy'
 
 const wordOf = (raw: string) => raw.trim().toLowerCase()
@@ -75,6 +75,10 @@ export const statusOf = (
   if (finishedAt !== undefined && finishedAt > seen) return 'done'
   return 'idle'
 }
+
+/** A Done or Idle own card whose workers include one that is Working shows Waiting. */
+export const waitsOnWorkers = (status: Status, children: readonly Child[]): boolean =>
+  (status === 'done' || status === 'idle') && children.some(child => child.status === 'working')
 
 /** The own facts `statusOf` reads from a merged session. */
 export const ownOf = (s: { failedAt?: number; background?: readonly unknown[]; isTurnOver?: boolean; childNeedAt?: number }): { failedAt?: number; background?: number; isTurnOver?: boolean; childNeedAt?: number } => ({

@@ -10,7 +10,7 @@ import { MAX_BACKGROUND_ROWS } from './background'
 import { DEFAULT_CHECK_AFTER_MINUTES, defaultSoftLimitOf } from './persist'
 import { orderShelf } from './order'
 import { snoozeOptionsAt } from './snooze'
-import { ownOf, statusOf } from './status'
+import { ownOf, statusOf, waitsOnWorkers } from './status'
 import { cellWidth, fitCells } from './width'
 import { SHELF_LABEL, SHELF_ORDER, snapToRasterGrid } from './types'
 import type { Caps, CardIcon, CardView, Child, Entry, GlyphMode, PaneView, Palette, Session, ShelfId, ShelfView, Status, Stored } from './types'
@@ -79,7 +79,7 @@ export const paneViewOf = (input: {
     const firstWidth = Math.max(0, contentWidth - (icon.kind === 'none' ? 0 : ICON_CELLS))
     const woke = isWoke(entry, status, now)
     const card: CardInput = {
-      s, status, woke, children: s.isSelf ? input.children : [], now, bell: input.bell, palette, projectColor, glyphMode: input.glyphMode ?? 'plain',
+      s, status, woke, children: s.isSelf ? input.children : [], ...(s.isSelf && waitsOnWorkers(status, input.children) ? { waiting: true as const } : {}), now, bell: input.bell, palette, projectColor, glyphMode: input.glyphMode ?? 'plain',
       ...(stored.settings.tickets ? { tickets: stored.settings.tickets } : {}),
       softLimit: stored.settings.softLimit ?? defaultSoftLimitOf(s.contextWindow),
       ...(shelf === 'snoozed' && entry?.snoozedUntil !== undefined ? { snoozedUntil: entry.snoozedUntil } : {}),

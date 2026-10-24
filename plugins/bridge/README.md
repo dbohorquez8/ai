@@ -27,6 +27,8 @@ A session that waits for an answer shows a red **Needs you** pill and sorts to t
 
 Your own session's card shows its subagents as child rows below it. A moving yellow dot means that child is running; finished rows stay. Up to five rows show, then `+N more`. Press a child row to read that child's transcript. The card's third line sums them up: one dot for each of the first three subagents, coloured by status, then the total, such as `●●● 6`.
 
+When the subagents work on two or more different tickets, the card also shows ticket progress. Turn it on with `/bridge tickets`. Bridge finds a ticket id such as `APP-142` in a subagent's description, or else its name. The title line ends with a bar of one coloured segment per ticket (yellow working, red needs you or failed, green done, gray stopped) and a count of finished tickets, such as `1/4`. When the bar is crowded, tickets of the same status merge into one run; on a narrow pane the bar drops out and only the count stays. Below the card, one row per ticket replaces that ticket's subagent rows and shows the newest subagent, with `×n` when the ticket has several; subagents without a ticket keep their own rows.
+
 ![A selected checkout-web card with two working subagent rows, three done rows, and a plus one more row](assets/subagents-more.png)
 
 ### Know when a long conversation needs a fresh start
@@ -58,6 +60,7 @@ Each card shows one status at the right end of its first line.
 | **Check?** | <img src="assets/status-check.png" alt="Orange Check? and its age" height="22"> | Your own session's background work has been silent for 15 minutes (see `check-after`). |
 | **Failed** | <img src="assets/status-failed.png" alt="A red pill with a cross" height="22"> | The last turn ended on an error, such as an API error. |
 | **Background** | <img src="assets/status-background.png" alt="A green turning gear, Background, and its age" height="22"> | Your own session finished its turn while background tasks still run. They show as rows under its card. |
+| **Waiting** | A green `Waiting` and its age | Your own session is done or idle, but a subagent still works. It returns to Done or Idle when the last one finishes. |
 | **Done** | <img src="assets/status-done.png" alt="A gray pill with a check mark and a bold title" height="22"> | A turn finished that you have not looked at yet. Pressing the card makes it Idle. |
 | **Idle** | <img src="assets/status-idle.png" alt="Only the time since the session last changed, and a muted title" height="22"> | Nothing is going on and you have seen the last result. |
 
@@ -73,7 +76,7 @@ Every setting is a `/bridge` argument and persists across sessions.
 | `/bridge working-shelf` | `on`, `off` | `off` | Working sessions on their own shelf. |
 | `/bridge theme` | `auto`, `light`, `dark` | `auto` | `auto` follows Claude Code's theme. |
 | `/bridge glyphs` | `auto`, `nerd`, `plain` | `auto` | Rounded pills and a bell, or square pills and `!`. |
-| `/bridge tickets` | id prefixes, `off` | `off` | Shows an issue id such as `APP-142` before the title; `/bridge tickets APP-,OPS-`. |
+| `/bridge tickets` | id prefixes, `off` | `off` | Shows an issue id such as `APP-142` before the title, and turns on ticket progress for subagents working on different tickets; `/bridge tickets APP-,OPS-`. |
 | `/bridge soft-limit` | token count, `off` | 100k, or 300k above a 200k window | Where the context colour turns orange and red. |
 | `/bridge check-after` | minutes, `off` | 15 | How long background work stays silent before **Check?**. |
 | `/bridge sound` | `on`, `off` | `on` | The chime. |

@@ -858,8 +858,8 @@ describe('7. published text and permissions', () => {
   })
   test('Owner publishes Bridge with no mention of BB in the text this feature adds (worker text untouched)', () => {
     // Exclusion clause: displayed worker text is left alone, even when it names BB.
-    const v = view([kid('fix BB plugin WS-11', 'working', 0), tk('WS-12', 'working', 1)])
-    expect(stripRow(rowText(v, 'WS-11'))).toMatch(/fix BB plugin WS-11/)
+    const v = view([kid('BB fix WS-11', 'working', 0), tk('WS-12', 'working', 1)])
+    expect(stripRow(rowText(v, 'WS-11'))).toMatch(/BB fix WS-11/)
   })
   // AC-48 S and AC-49 S run in tests/ws138-published-text.test.ts (Workspace root suite; this runner has no file read).
   test('Owner turns on ticket progress and Waiting without a new permission or another tool', async ($, on) => {
@@ -963,8 +963,8 @@ describe('edge cases', () => {
     expect([leads(view(listed)), leads(view([...listed].reverse()))]).toEqual([['WS-12', 'WS-15', 'WS-13'], ['WS-12', 'WS-15', 'WS-13']])
   })
   test('Two workers of one ticket started at the same moment', () => {
-    const v = view([kid('scan WS-11 listed-first', 'done', 4), kid('scan WS-11 listed-second', 'failed', 4), tk('WS-12', 'working', 6)])
-    expect({ dot: dotHue(rowFor(v, 'WS-11')?.text), text: stripRow(rowText(v, 'WS-11')).includes('listed-second') }).toEqual({ dot: 'red', text: true })
+    const v = view([kid('WS-11 first', 'done', 4), kid('WS-11 second', 'failed', 4), tk('WS-12', 'working', 6)])
+    expect({ dot: dotHue(rowFor(v, 'WS-11')?.text), text: stripRow(rowText(v, 'WS-11')).includes('second') }).toEqual({ dot: 'red', text: true })
   })
   test('Newest worker Working while an older one failed', () => {
     const v = view([kid('scan WS-11 old', 'failed', 0), kid('scan WS-11 new', 'working', 4), tk('WS-12', 'done', 5)])

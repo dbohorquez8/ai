@@ -278,10 +278,13 @@ const markAway = async ($: EngineInterface, listedRows: readonly Row[], entries:
 
 /** This session's subagents as children, each with the time it has shown its tag; finished ones stay listed. */
 const readChildren = async ($: EngineInterface, at: number) => {
-  let agents: Array<Record<string, unknown>> = []
+  let agents: Array<Record<string, unknown>>
   try {
     agents = (await $.agent.list()) as unknown as Array<Record<string, unknown>>
-  } catch {}
+  } catch {
+    // A failed read keeps the last successful one (children and their first-seen times) on every card.
+    return
+  }
   const interactions = await read($, childInteractions)
   const needsYou = Object.values(interactions).reduce<Record<string, number>>((out, one) => {
     out[one.agentId] = Math.max(out[one.agentId] ?? 0, one.at)

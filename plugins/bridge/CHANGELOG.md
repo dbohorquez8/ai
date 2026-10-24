@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Ticket progress: when your own session's subagents work on two or more different tickets (ids found by
+  `/bridge tickets` in a subagent's description, else its name), the title line ends with a bar of one
+  segment per ticket and a count of finished tickets, and one row per ticket replaces its subagent rows.
+- Waiting: a Done or Idle card whose subagent still works shows a green `Waiting` and its age.
+- When more than one status applies, the order is Needs you, Working, Check?, Failed, Background, Waiting, Done, Idle.
+
 ## 2.1.0 — 2026-10-19
 
 > A chime when a session needs you, Failed, Background and Check? states, background rows, project icons and context colors that follow the model's window.

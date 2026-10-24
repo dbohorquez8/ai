@@ -4,6 +4,8 @@
 import { ageLabel, timeLeftLabel } from './age'
 import { cellWidth, fitCells } from './width'
 import { parseTicketId } from './tickets'
+import { BAR_CELL, BAR_END, barRunsOf, barWidthOf, MIN_BAR, TICKET_HUE, titleMinOf } from './progress'
+import type { Ticket, TicketProgress } from './progress'
 import { STATUS_HUE } from './types'
 import type { BackgroundTask, Child, GlyphMode, Palette, Seg, Session, Status } from './types'
 
@@ -19,7 +21,7 @@ export const CARD_EDGE_BOTTOM = '▀'
 /** One terminal cell on each side of an inset pane row stays outside its exact-width content. */
 export const ROW_HORIZONTAL_PADDING = 1
 
-export type CardInput = { s: Session; status: Status; woke: boolean; snoozedUntil?: number; children: readonly Child[]; now: number; bell: 0 | 1 | 2; palette: Palette; projectColor: string; glyphMode: GlyphMode; tickets?: readonly string[]; softLimit?: number; waiting?: true }
+export type CardInput = { s: Session; status: Status; woke: boolean; snoozedUntil?: number; children: readonly Child[]; now: number; bell: 0 | 1 | 2; palette: Palette; projectColor: string; glyphMode: GlyphMode; tickets?: readonly string[]; softLimit?: number; waiting?: true; progress?: TicketProgress }
 
 type TextSeg = Extract<Seg, { kind: 'text' }>
 type Style = Partial<Omit<TextSeg, 'kind' | 'text'>>
@@ -173,10 +175,30 @@ const ticketOf = (c: CardInput): { chip: Seg[]; title: string } => {
   return { chip: [text(left, { color: palette.pill.gray.bg }), text(match.id, { color: palette.pill.gray.fg, bg: palette.pill.gray.bg }), text(`${right}\u00a0`, { color: palette.pill.gray.bg })], title: match.titleRest || s.title }
 }
 
-/** Line 2: the ticket chip when one is found, then the title, cut with an ellipsis. */
+/** The bar: one segment per run, every cell `━` and the run's last cell `╸`, coloured by the run's ticket hue (plan L-4). */
+const barOf = (tickets: readonly Ticket[], cells: number, palette: Palette): Seg[] =>
+  barRunsOf(tickets, cells).map(run => text(BAR_CELL.repeat(run.length - 1) + BAR_END, { color: palette.text[TICKET_HUE[run.status]], role: 'bar' }))
+
+/**
+ * Line 2: the ticket chip when one is found, then the title, cut with an ellipsis. While ticket progress
+ * shows, the bar and the `done/total` count sit at the right: the title gives way first, down to its first
+ * character, then the bar shrinks, and below five cells the count stands alone (plan L-2, L-3).
+ */
 export const line2Of = (c: CardInput, width: number): Seg[] => {
   const { chip, title } = ticketOf(c)
-  return fitSegs([...chip, titleOf(c, title)], width)
+  const progress = c.progress
+  if (!progress) return fitSegs([...chip, titleOf(c, title)], width)
+  const count = text(`${progress.done}/${progress.total}`, { role: 'count' })
+  const countCells = sumOf([count])
+  const chipCells = sumOf(chip)
+  const minTitle = titleMinOf(title)
+  const cells = barWidthOf(width, chipCells, cellWidth(minTitle), countCells)
+  const hasBar = cells >= MIN_BAR
+  const shown = hasBar ? fitCells(title, width - chipCells - 1 - cells - 1 - countCells) : minTitle
+  const left = [...chip, ...(shown ? [titleOf(c, shown)] : [])]
+  const bar = hasBar ? [...barOf(progress.tickets, cells, c.palette), text(' ')] : []
+  const gap = width - sumOf(left) - sumOf(bar) - countCells
+  return fitSegs([...left, ...spaces(sumOf(left) > 0 ? Math.max(1, gap) : gap), ...bar, count], width)
 }
 
 type Item = { key: 'branch' | 'badge' | 'model' | 'pr' | 'context'; segs: Seg[] }
@@ -239,11 +261,39 @@ export const line3Of = (c: CardInput, width: number): Seg[] => {
   return fitSegs([...left, ...spaces(width - sumOf(left) - sumOf(right)), ...right], width)
 }
 
+/**
+ * The one-line card while ticket progress shows: `project title … d/t slot`, no bar. The title shrinks
+ * first, then the project; the count and the slot stay whole (plan L-3b).
+ */
+const oneLineWithCountOf = (c: CardInput, width: number, slot: readonly Seg[]): Seg[] => {
+  const progress = c.progress!
+  const count = text(`${progress.done}/${progress.total}`, { role: 'count' })
+  const slotWidth = sumOf(slot)
+  const tail = [count, ...(slotWidth > 0 ? [text(' '), ...slot] : [])]
+  const room = width - sumOf(tail) - 1
+  const project = c.s.project
+  const left: Seg[] = []
+  if (room > 0) {
+    const projectWidth = cellWidth(project)
+    if (!project) {
+      left.push(titleOf(c, fitCells(c.s.title, room)))
+    } else if (projectWidth >= room) {
+      left.push(projectOf(c, fitCells(project, room)))
+    } else {
+      left.push(projectOf(c, project))
+      const titleRoom = room - projectWidth - 1
+      if (titleRoom > 0) left.push(text(' '), titleOf(c, fitCells(c.s.title, titleRoom)))
+    }
+  }
+  return fitSegs([...left, ...spaces(width - sumOf(left) - sumOf(tail)), ...tail], width)
+}
+
 /** The Working shelf's one-line card: `project title … [Woke ]slot`; the icon, when shown, sits before it. */
 export const oneLineOf = (c: CardInput, width: number): Seg[] => {
   if (width <= 0) return []
   const slot = slotOf(c)
   const slotWidth = sumOf(slot)
+  if (c.progress) return oneLineWithCountOf(c, width, slot)
   if (slotWidth >= width) return fitSegs(slot, width)
   const room = width - slotWidth - (slotWidth > 0 ? 1 : 0)
   const project = c.s.project
@@ -282,6 +332,21 @@ export const childRowOf = (child: Child, width: number, now: number, palette: Pa
   const room = width - sumOf(head) - sumOf(tail) - 1
   const label = room > 0 ? [text(fitCells(child.label, room))] : []
   return { text: fitSegs([...head, ...label, ...spaces(width - sumOf(head) - sumOf(label) - sumOf(tail)), ...tail], width) }
+}
+
+/**
+ * A ticket row under the own card: `  │ ID ● description ×n … status`. The dot takes the ticket's colour,
+ * the description and status are the newest worker's; the description shrinks first (plan L-7).
+ */
+export const ticketRowOf = (ticket: Ticket, width: number, now: number, palette: Palette, glyphMode: GlyphMode = 'plain', bell: 0 | 1 | 2 = 0): { text: Seg[] } => {
+  const tail = childStatusOf(ticket.newest, now, palette, glyphMode, bell)
+  const head = [text('  '), text('│', { dim: true }), text(' '), text(ticket.id), text(' '), text('●', { color: palette.text[TICKET_HUE[ticket.status]] }), text(' ')]
+  const many = ticket.workers.length >= 2 ? [text(` ×${ticket.workers.length}`, { dim: true })] : []
+  const room = width - sumOf(head) - sumOf(many) - sumOf(tail) - 1
+  const description = ticket.newest.texts?.[0] ?? ticket.newest.label
+  const label = room > 0 ? [text(fitCells(description, room))] : []
+  const used = sumOf(head) + sumOf(label) + sumOf(many)
+  return { text: fitSegs([...head, ...label, ...many, ...spaces(width - used - sumOf(tail)), ...tail], width) }
 }
 
 /**

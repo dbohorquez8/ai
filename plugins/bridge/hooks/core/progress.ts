@@ -65,14 +65,14 @@ export const ticketProgressOf = (children: readonly Child[], prefixes: readonly 
   return { tickets, loose, done: tickets.filter(ticket => ticket.status === 'done').length, total: tickets.length }
 }
 
-/** The status of each of the n cells, left to right; [] when n is below MIN_BAR. */
-export const barCellsOf = (tickets: readonly Ticket[], n: number): TicketStatus[] => {
+/** The bar's segments left to right: a run per ticket when they fit, else a run per status present (plan L-4). Empty below MIN_BAR. */
+export const barRunsOf = (tickets: readonly Ticket[], n: number): { status: TicketStatus; length: number }[] => {
   const total = tickets.length
   if (n < MIN_BAR || total === 0) return []
   if (total <= n) {
     const base = Math.floor(n / total)
     const extra = n % total
-    return tickets.flatMap((ticket, index) => Array<TicketStatus>(base + (index < extra ? 1 : 0)).fill(ticket.status))
+    return tickets.map((ticket, index) => ({ status: ticket.status, length: base + (index < extra ? 1 : 0) }))
   }
   const counts = new Map<TicketStatus, number>()
   for (const ticket of tickets) counts.set(ticket.status, (counts.get(ticket.status) ?? 0) + 1)
@@ -91,8 +91,12 @@ export const barCellsOf = (tickets: readonly Ticket[], n: number): TicketStatus[
     lengths.set(longest, lengths.get(longest)! - 1)
     lengths.set(status, 1)
   }
-  return present.flatMap(status => Array<TicketStatus>(lengths.get(status)!).fill(status))
+  return present.map(status => ({ status, length: lengths.get(status)! }))
 }
+
+/** The status of each of the n cells, left to right; [] when n is below MIN_BAR. */
+export const barCellsOf = (tickets: readonly Ticket[], n: number): TicketStatus[] =>
+  barRunsOf(tickets, n).flatMap(run => Array<TicketStatus>(run.length).fill(run.status))
 
 /** The title kept at the least: itself when it is at most a character and one cell wide, else its first character and `…`. */
 export const titleMinOf = (title: string): string => {

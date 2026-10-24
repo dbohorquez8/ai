@@ -68,11 +68,11 @@ export type BackgroundTask = { id: string; kind: 'Command' | 'Monitoring' | 'Wor
 
 /** A child uses the same status slot as a card; an engine `killed` child becomes `idle` (age only). */
 export type ChildStatus = Extract<Status, 'working' | 'needs-you' | 'done' | 'failed' | 'idle'>
-export type Child = { id: string; label: string; status: ChildStatus; since: number; startedAt: number }
+export type Child = { id: string; label: string; status: ChildStatus; since: number; startedAt: number; texts?: readonly string[] }
 
 /** A styled run of a drawn line; a line's runs sum to its exact cell width. */
 export type Seg =
-  | { kind: 'text'; text: string; color?: string; bg?: string; dim?: true; bold?: true; role?: 'title' | 'status' | 'project' }
+  | { kind: 'text'; text: string; color?: string; bg?: string; dim?: true; bold?: true; role?: 'title' | 'status' | 'project' | 'bar' | 'count' }
   | { kind: 'spinner' }      // one cell, drawn as the `spin:<id>` Raster
 
 export type Hue = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'violet' | 'gray'

@@ -28,7 +28,7 @@ export type Since = { status: string; at: number }
 
 /** Mirrors of the core shapes kept in plugin state (this contract is self-contained; core/types.ts is the source). */
 export type ChildStatus = 'working' | 'needs-you' | 'done' | 'failed' | 'idle'
-export type StateChild = { id: string; label: string; status: ChildStatus; since: number; startedAt: number }
+export type StateChild = { id: string; label: string; status: ChildStatus; since: number; startedAt: number; texts?: string[] }
 export type StateEntry = {
   isPinned?: true; isParked?: true; parkedAt?: number; isSettled?: true; settledAt?: number
   snoozedUntil?: number; snoozedAt?: number; wokeAt?: number; ackAt?: number; seenAt?: number

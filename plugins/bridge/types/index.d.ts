@@ -29,7 +29,7 @@ export type Since = { status: string; at: number }
 /** Mirrors of the core shapes kept in plugin state (this contract is self-contained; core/types.ts is the source). */
 export type ChildStatus = 'working' | 'needs-you' | 'done' | 'failed' | 'idle'
 export type StateReport = { v: 1; at: number; tickets: Array<{ id: string; state: 'planned' | 'in_progress' | 'done'; worker?: string }>; epic?: string }
-export type StateChild ={ id: string; label: string; status: ChildStatus; since: number; startedAt: number; parentId?: string }
+export type StateChild = { id: string; label: string; status: ChildStatus; since: number; startedAt: number; parentId?: string }
 export type StateEntry = {
   isPinned?: true; isParked?: true; parkedAt?: number; isSettled?: true; settledAt?: number
   snoozedUntil?: number; snoozedAt?: number; wokeAt?: number; ackAt?: number; seenAt?: number

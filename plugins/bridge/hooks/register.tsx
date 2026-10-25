@@ -955,8 +955,13 @@ export const register: Register = on => {
       const at = await $.clock.now()
       const sessionId = await $.session.id()
       const key = reportKeyOf(sessionId)
-      const raw = await $.store.get(key)
-      if (isDeadReport(raw, at)) await $.store.delete(key)
+      let raw: unknown
+      try {
+        raw = await $.store.get(key)
+        if (isDeadReport(raw, at)) await $.store.delete(key)
+      } catch {
+        return { deny: 'Refused: the ticket list could not be stored. The ticket list did not change.' }
+      }
       const out = ticketCallOf(input, reportOf(raw, at), at, agentId !== undefined)
       if (out.write) {
         const next: Report | null = out.write.report

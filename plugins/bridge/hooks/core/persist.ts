@@ -117,7 +117,7 @@ export const softLimitOf = (raw: string): number | undefined => {
 }
 
 /** The `/bridge` argument forms, shown after the command name. */
-export const PANE_ARGS_HINT = 'icons on|off · working-shelf on|off · glyphs auto|nerd|plain · theme auto|light|dark · tickets APP-,OPS-|off · soft-limit 100k|off · check-after 15|off · sound on|off'
+export const PANE_ARGS_HINT = 'icons on|off · working-shelf on|off · glyphs auto|nerd|plain · theme auto|light|dark · tickets APP-,OPS-|off (branch chip) · soft-limit 100k|off · check-after 15|off · sound on|off'
 
 /**
  * A `/bridge` setting from its typed arguments (settings stay off the pane, so the pane has no
@@ -145,7 +145,7 @@ export const paneSettingOf = (args: string):
   if (words.length === 2 && name === 'theme' && (value === 'auto' || value === 'light' || value === 'dark')) return { key: KEYS.theme, value, label: `Theme: ${value}` }
   if (name === 'tickets' && words.length >= 2) {
     const prefixes = words[1] === 'off' && words.length === 2 ? [] : ticketPrefixesOf(args.trim().slice('tickets'.length).split(/[\s,]+/))
-    if (prefixes) return { key: KEYS.tickets, value: [...prefixes], label: prefixes.length > 0 ? `Ticket prefixes: ${prefixes.join(', ')}` : 'Ticket prefixes: off' }
+    if (prefixes) return { key: KEYS.tickets, value: [...prefixes], label: prefixes.length > 0 ? `Ticket prefixes: ${prefixes.join(', ')} (branch chip)` : 'Ticket prefixes: off (branch chip)' }
   }
   if (name === 'soft-limit' && words.length >= 2) {
     if (words[1] === 'off' && words.length === 2) return { key: KEYS.softLimit, value: 0, label: 'Soft limit: off' }

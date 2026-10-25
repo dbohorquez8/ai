@@ -27,7 +27,7 @@ A session that waits for an answer shows a red **Needs you** pill and sorts to t
 
 Your own session's card shows its subagents as child rows below it. A moving yellow dot means that child is running; finished rows stay. Up to five rows show, then `+N more`. Press a child row to read that child's transcript. The card's third line sums them up: one dot for each of the first three subagents, coloured by status, then the total, such as `●●● 6`.
 
-When the subagents work on two or more different tickets, the card also shows ticket progress. Turn it on with `/bridge tickets`. Bridge finds a ticket id such as `APP-142` in a subagent's description, or else its name. The title line ends with a bar of one coloured segment per ticket (yellow working, red needs you or failed, green done, gray stopped) and a count of finished tickets, such as `1/4`. When the bar is crowded, tickets of the same status merge into one run; on a narrow pane the bar drops out and only the count stays. Below the card, one row per ticket replaces that ticket's subagent rows and shows the newest subagent, with `×n` when the ticket has several; subagents without a ticket keep their own rows.
+Bridge adds a `report_tickets` tool. Your session sends it every ticket with its state (planned, in progress or done) and, when a worker carries it, that worker's agent id; each report replaces the previous list, and an empty list clears it. While the report holds tickets, the card shows ticket progress. The title line ends with a bar of one coloured segment per ticket (green done, blue in progress, gray planned) and a count of done tickets, such as `1/4`. When the bar is crowded, tickets of the same state merge into one run; on a narrow pane the bar drops out and only the count stays. When the report names an epic, or every id shares a prefix such as `APP`, a chip with it opens the title line. The subagent rows below the card stay as they are. Bridge never reads ticket ids from a subagent's description or name.
 
 ![A selected checkout-web card with two working subagent rows, three done rows, and a plus one more row](assets/subagents-more.png)
 
@@ -60,11 +60,11 @@ Each card shows one status at the right end of its first line.
 | **Check?** | <img src="assets/status-check.png" alt="Orange Check? and its age" height="22"> | Your own session's background work has been silent for 15 minutes (see `check-after`). |
 | **Failed** | <img src="assets/status-failed.png" alt="A red pill with a cross" height="22"> | The last turn ended on an error, such as an API error. |
 | **Background** | <img src="assets/status-background.png" alt="A green turning gear, Background, and its age" height="22"> | Your own session finished its turn while background tasks still run. They show as rows under its card. |
-| **Waiting** | A green `Waiting` and its age | Your own session is done or idle, but a subagent still works. It returns to Done or Idle when the last one finishes. |
 | **Done** | <img src="assets/status-done.png" alt="A gray pill with a check mark and a bold title" height="22"> | A turn finished that you have not looked at yet. Pressing the card makes it Idle. |
+| **Waiting** | A green `Waiting` and its age | Your own session is idle, but a subagent still works. It returns to Idle when the last one finishes; a Done card stays Done. |
 | **Idle** | <img src="assets/status-idle.png" alt="Only the time since the session last changed, and a muted title" height="22"> | Nothing is going on and you have seen the last result. |
 
-When more than one status applies, the first one in the table shows. A snoozed card shows the time left, such as `2h`; a card back from snooze shows **Woke** until you press it (not pictured).
+When more than one status applies, the first one in the table shows. A snoozed card shows the time left, such as `2h`; a card back from snooze shows **Woke** until you press it, or **Waiting** while it is idle and a subagent works (not pictured).
 
 ## Settings
 
@@ -76,7 +76,7 @@ Every setting is a `/bridge` argument and persists across sessions.
 | `/bridge working-shelf` | `on`, `off` | `off` | Working sessions on their own shelf. |
 | `/bridge theme` | `auto`, `light`, `dark` | `auto` | `auto` follows Claude Code's theme. |
 | `/bridge glyphs` | `auto`, `nerd`, `plain` | `auto` | Rounded pills and a bell, or square pills and `!`. |
-| `/bridge tickets` | id prefixes, `off` | `off` | Shows an issue id such as `APP-142` before the title, and turns on ticket progress for subagents working on different tickets; `/bridge tickets APP-,OPS-`. |
+| `/bridge tickets` | id prefixes, `off` | `off` | Shows an issue id such as `APP-142` as a chip before the title (branch chip); `/bridge tickets APP-,OPS-`. |
 | `/bridge soft-limit` | token count, `off` | 100k, or 300k above a 200k window | Where the context colour turns orange and red. |
 | `/bridge check-after` | minutes, `off` | 15 | How long background work stays silent before **Check?**. |
 | `/bridge sound` | `on`, `off` | `on` | The chime. |
@@ -101,7 +101,7 @@ Tab focus works only within the same terminal app; elsewhere a press copies a re
 
 ## What it touches
 
-Bridge reads Claude Code's session files on this machine and writes only its own settings. To find which terminal tab runs each session, it lists processes with `ps`, including their environment variables; a press runs that terminal's own command to focus the tab. If `gh` is installed and signed in, Bridge runs `gh pr list`, which asks GitHub for pull request numbers. Nothing else leaves your machine.
+Bridge reads Claude Code's session files on this machine and writes only its own settings. To find which terminal tab runs each session, it lists processes with `ps`, including their environment variables; a press runs that terminal's own command to focus the tab. If `gh` is installed and signed in, Bridge runs `gh pr list`, which asks GitHub for pull request numbers. Nothing else leaves your machine. It also keeps the ticket list your session reports to its ticket tool in that same storage, for up to 7 days.
 
 ## Credits and licence
 

@@ -3,9 +3,10 @@
 
 import { ALL_CLEAR, WORKING_CAPTIONS } from './captions'
 import { inkOf, monogramTextOf, projectMonogramLetter } from './icons'
-import { backgroundRowOf, childRowOf, headerOf, ICON_CELLS, ICON_MIN_COLUMNS, line1Of, line2Of, line3Of, MAX_CHILD_ROWS, oneLineOf, ROW_HORIZONTAL_PADDING, sortChildren, ticketRowOf } from './layout'
+import { backgroundRowOf, childRowOf, headerOf, ICON_CELLS, ICON_MIN_COLUMNS, line1Of, line2Of, line3Of, MAX_CHILD_ROWS, oneLineOf, ROW_HORIZONTAL_PADDING, sortChildren } from './layout'
 import { ticketProgressOf } from './progress'
 import type { CardInput } from './layout'
+import type { Report } from './report'
 import { isWoke, offeredActions, shelfOf } from './lifecycle'
 import { MAX_BACKGROUND_ROWS } from './background'
 import { DEFAULT_CHECK_AFTER_MINUTES, defaultSoftLimitOf } from './persist'
@@ -33,6 +34,8 @@ export const paneViewOf = (input: {
   stored: Stored
   finished: Readonly<Record<string, number>>
   children: readonly Child[]
+  /** The own session's live ticket report, or null. */
+  report: Report | null
   now: number
   width: number
   caps: Caps
@@ -79,7 +82,7 @@ export const paneViewOf = (input: {
     const icon = iconOf(s.project, projectColor)
     const firstWidth = Math.max(0, contentWidth - (icon.kind === 'none' ? 0 : ICON_CELLS))
     const woke = isWoke(entry, status, now)
-    const progress = s.isSelf ? ticketProgressOf(input.children, stored.settings.tickets ?? []) : null
+    const progress = s.isSelf ? ticketProgressOf(input.report) : null
     const card: CardInput = {
       s, status, woke, children: s.isSelf ? input.children : [], ...(progress ? { progress } : {}), ...(s.isSelf && waitsOnWorkers(status, input.children) ? { waiting: true as const } : {}), now, bell: input.bell, palette, projectColor, glyphMode: input.glyphMode ?? 'plain',
       ...(stored.settings.tickets ? { tickets: stored.settings.tickets } : {}),
@@ -96,16 +99,12 @@ export const paneViewOf = (input: {
     }
     if (input.snoozeOpen !== undefined && input.snoozeOpen === s.prefId) view.snoozeMenu = snoozeOptionsAt(now)
     if (s.isSelf && input.children.length > 0) {
-      const glyphMode = input.glyphMode ?? 'plain'
-      const all = [
-        ...(progress ? progress.tickets.map(ticket => ({ id: ticket.newest.id, text: ticketRowOf(ticket, contentWidth, now, palette, glyphMode, input.bell).text })) : []),
-        ...sortChildren(progress ? progress.loose : input.children).map(child => {
-          const row = childRowOf(child, contentWidth, now, palette, glyphMode, input.bell)
-          return { id: child.id, text: row.text, ...(row.bg ? { bg: row.bg } : {}) }
-        }),
-      ]
-      const rows = all.slice(0, MAX_CHILD_ROWS)
-      view.children = all.length > MAX_CHILD_ROWS ? { rows, more: `+${all.length - MAX_CHILD_ROWS} more` } : { rows }
+      const ordered = sortChildren(input.children)
+      const rows = ordered.slice(0, MAX_CHILD_ROWS).map(child => {
+        const row = childRowOf(child, contentWidth, now, palette, input.glyphMode ?? 'plain', input.bell)
+        return { id: child.id, text: row.text, ...(row.bg ? { bg: row.bg } : {}) }
+      })
+      view.children = ordered.length > MAX_CHILD_ROWS ? { rows, more: `+${ordered.length - MAX_CHILD_ROWS} more` } : { rows }
     }
     const tasks = s.isSelf ? (s.background ?? []) : []
     if (tasks.length > 0) {

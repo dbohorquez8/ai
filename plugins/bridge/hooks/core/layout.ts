@@ -348,15 +348,32 @@ export const childRowOf = (child: Child, width: number, now: number, palette: Pa
  * A ticket row under the own card: `  │ ID ● description ×n … status`. The dot takes the ticket's colour,
  * the description and status are the newest worker's; the description shrinks first (plan L-7).
  */
-export const ticketRowOf = (ticket: Ticket, width: number, now: number, palette: Palette, glyphMode: GlyphMode = 'plain', bell: 0 | 1 | 2 = 0): { text: Seg[] } => {
-  const tail = childStatusOf(ticket.newest, now, palette, glyphMode, bell)
-  const head = [text('  '), text('│', { dim: true }), text(' '), text(ticket.id), text(' '), text('●', { color: palette.text[TICKET_HUE[ticket.status]] }), text(' ')]
-  const many = ticket.workers.length >= 2 ? [text(` ×${ticket.workers.length}`, { dim: true })] : []
-  const room = width - sumOf(head) - sumOf(many) - sumOf(tail) - 1
-  const description = ticket.newest.texts?.[0] ?? ticket.newest.label
-  const label = room > 0 ? [text(fitCells(description, room))] : []
-  const used = sumOf(head) + sumOf(label) + sumOf(many)
-  return { text: fitSegs([...head, ...label, ...many, ...spaces(width - used - sumOf(tail)), ...tail], width) }
+export const ticketRowOf = (ticket: Ticket, width: number, now: number, palette: Palette): { text: Seg[] } => {
+  const hue = palette.text[TICKET_HUE[ticket.color]]
+  const worker = ticket.worker
+  const hasAge = worker !== undefined && (worker.status === 'working' || worker.status === 'idle') && worker.since > 0
+  const age = hasAge ? ageLabel(worker.since, now) : ''
+  const ageCells = hasAge ? 1 + cellWidth(age) : 0
+  const wordCells = cellWidth(ticket.word)
+  const idCells = cellWidth(ticket.id)
+  const idMin = cellWidth(`${[...ticket.id].slice(0, 7).join('')}…`)
+  const head = [text('  '), text('│', { dim: true }), text(' '), text('●', { color: hue }), text(' ')]
+  const fixedOf = (a: number) => 4 + 2 + 1 + wordCells + a
+  const cutId = (room: number): string => (room >= idCells ? ticket.id : room >= 1 ? fitCells(ticket.id, room) : '')
+  let showAge = hasAge
+  let id: string
+  let room = width - fixedOf(ageCells)
+  if (room >= idCells) id = ticket.id
+  else if (room >= idMin) id = cutId(room)
+  else {
+    showAge = false
+    room = width - fixedOf(0)
+    id = cutId(room)
+  }
+  const tail: Seg[] = [text(ticket.word, { color: hue, role: 'status' }), ...(showAge ? [text(` ${age}`, { dim: true, role: 'status' })] : [])]
+  const idSegs = id ? [text(id)] : []
+  const gap = id ? Math.max(1, width - sumOf(head) - sumOf(idSegs) - sumOf(tail)) : 0
+  return { text: fitSegs([...head, ...idSegs, ...spaces(gap), ...tail], width) }
 }
 
 /**

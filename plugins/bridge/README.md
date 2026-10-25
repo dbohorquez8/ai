@@ -27,7 +27,7 @@ A session that waits for an answer shows a red **Needs you** pill and sorts to t
 
 Your own session's card shows its subagents as child rows below it. A moving yellow dot means that child is running; finished rows stay. Up to five rows show, then `+N more`. Press a child row to read that child's transcript. The card's third line sums them up: one dot for each of the first three subagents, coloured by status, then the total, such as `●●● 6`.
 
-Bridge adds a `report_tickets` tool. Your session sends it every ticket with its state (planned, in progress or done) and, when a worker carries it, that worker's agent id; each report replaces the previous list, and an empty list clears it. While the report holds tickets, the card shows ticket progress. The title line ends with a bar of one coloured segment per ticket (blue in progress, red needs you or failed, green done, gray planned) and a count of done tickets, such as `1/4`. When the bar is crowded, tickets of the same state merge into one run; on a narrow pane the bar drops out and only the count stays. When the report names an epic, or every id shares a prefix such as `APP`, a chip with it opens the title line. Below the card, one row per ticket shows its id and state; a press on a row opens its worker, and subagents no ticket claims keep their own rows. Bridge never reads ticket ids from a subagent's description or name.
+Bridge adds a `report_tickets` tool. Your session sends it every ticket with its state (planned, in progress or done) and, when a worker carries it, that worker's agent id; each report replaces the previous list, and an empty list clears it. While the report holds tickets, the card shows ticket progress. The title line ends with a bar of one coloured segment per ticket (green done, blue in progress, gray planned) and a count of done tickets, such as `1/4`. When the bar is crowded, tickets of the same state merge into one run; on a narrow pane the bar drops out and only the count stays. When the report names an epic, or every id shares a prefix such as `APP`, a chip with it opens the title line. The subagent rows below the card stay as they are. Bridge never reads ticket ids from a subagent's description or name.
 
 ![A selected checkout-web card with two working subagent rows, three done rows, and a plus one more row](assets/subagents-more.png)
 
@@ -60,11 +60,11 @@ Each card shows one status at the right end of its first line.
 | **Check?** | <img src="assets/status-check.png" alt="Orange Check? and its age" height="22"> | Your own session's background work has been silent for 15 minutes (see `check-after`). |
 | **Failed** | <img src="assets/status-failed.png" alt="A red pill with a cross" height="22"> | The last turn ended on an error, such as an API error. |
 | **Background** | <img src="assets/status-background.png" alt="A green turning gear, Background, and its age" height="22"> | Your own session finished its turn while background tasks still run. They show as rows under its card. |
-| **Waiting** | A green `Waiting` and its age | Your own session is done or idle, but a subagent still works. It returns to Done or Idle when the last one finishes. |
 | **Done** | <img src="assets/status-done.png" alt="A gray pill with a check mark and a bold title" height="22"> | A turn finished that you have not looked at yet. Pressing the card makes it Idle. |
+| **Waiting** | A green `Waiting` and its age | Your own session is idle, but a subagent still works. It returns to Idle when the last one finishes; a Done card stays Done. |
 | **Idle** | <img src="assets/status-idle.png" alt="Only the time since the session last changed, and a muted title" height="22"> | Nothing is going on and you have seen the last result. |
 
-When more than one status applies, the first one in the table shows. A snoozed card shows the time left, such as `2h`; a card back from snooze shows **Woke** until you press it (not pictured).
+When more than one status applies, the first one in the table shows. A snoozed card shows the time left, such as `2h`; a card back from snooze shows **Woke** until you press it, or **Waiting** while it is idle and a subagent works (not pictured).
 
 ## Settings
 

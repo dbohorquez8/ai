@@ -4,11 +4,11 @@
 
 - Ticket tool: Bridge adds a `report_tickets` tool. Your session sends it the ticket list (id, state and, when a
   worker carries it, that worker's agent id), and each report replaces the previous list.
-- Ticket progress: while a report holds tickets, the title line ends with a bar of one segment per ticket and a
-  count of done tickets, and one row per ticket shows its state. Progress comes from the report, never from
-  names in a subagent's description.
-- Waiting: a Done or Idle card whose subagent still works shows a green `Waiting` and its age.
-- When more than one status applies, the order is Needs you, Working, Check?, Failed, Background, Waiting, Done, Idle.
+- Ticket progress: while a report holds tickets, the title line ends with a bar of one segment per ticket (green
+  done, blue in progress, gray planned) and a count of done tickets. Subagent rows stay as they are. Progress
+  comes from the report, never from names in a subagent's description.
+- Waiting: an Idle card whose subagent still works shows a green `Waiting` and its age; a Done card stays Done.
+- When more than one status applies, the order is Needs you, Working, Check?, Failed, Background, Done, Waiting, Idle.
 
 ## 2.1.0 — 2026-10-19
 

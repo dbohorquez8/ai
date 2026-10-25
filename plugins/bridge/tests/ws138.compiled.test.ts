@@ -1,11 +1,25 @@
-// Black-box checks for WS-138 (orchestration progress in Bridge), compiled from
-// docs/features/012-ws-138-bridge-orch-progress/validation-plan.md. Re-translated after /ddd:plan locked the interfaces (plan.md,
-// "Locked Contracts", "Interfaces & Contracts" and "Re-translation decisions").
-// Pure rules are driven through paneViewOf (the view the pane draws); drawn text, redraw timing, presses and sound
-// are driven through the module entry (hooks/register.tsx) with the host stubbed at the lowest boundary. The locked pure rules
-// ticketProgressOf and barCellsOf (hooks/core/progress.ts, new) are imported for the status-level checks (R-7); the Bridge runner allows no
-// dynamic import, so until that module exists this file does not load.
-// Failures are the bar: the feature is not built yet. Test names are the validation plan's Intent lines.
+// Black-box checks for WS-138 (orchestration progress in Bridge, re-scoped: the orchestrator reports its tickets to Bridge's ticket tool),
+// compiled from docs/features/012-ws-138-bridge-orch-progress/validation-plan.md (v2.0, 2026-10-24). Re-translated (Step 5a) against the locked contract
+// surface of plan.md (L-1 to L-13, R-1 to R-17).
+//
+// Every check reaches the tool only through the adapters below (F-report, F-readback, F-workerRef, F-rollup, F-limit), and every
+// drawn outcome through the module entry (hooks/register.tsx) with the host stubbed at the lowest boundary. Test names are the plan's
+// Intent lines (a variant adds a suffix in brackets); NH tests carry their id. Failures are the bar: the feature is not built yet.
+//
+// Not expressible here (the Bridge runner has no file read and no live pane): the S layer (README, CHANGELOG) runs in
+// tests/ws138-published-text.test.ts at the Workspace root; the O layer (live captures) is the Owner's.
+//
+// Id map, in file order:
+// 1 reporting:     AC-01 AC-02 AC-03 AC-60 AC-61 AC-62 AC-63 AC-04 AC-05 AC-06 AC-07 AC-08 AC-09
+// 2 appearing:     AC-10 AC-11 AC-12 AC-13 AC-14
+// 3 bar and count: AC-15 AC-16 AC-17 AC-18 AC-19 AC-20 AC-21 AC-22 AC-23 AC-24 AC-25
+// 4 group chip:    AC-26 AC-27 AC-28 AC-29 AC-30
+// 5 ticket rows:   AC-31 AC-32 AC-33 AC-34 AC-35 AC-36 AC-37 AC-38 AC-39 AC-40 AC-41
+// 6 keeping:       AC-42 AC-43 AC-44 AC-45 AC-46
+// 7 Waiting:       AC-47 AC-48 AC-49 AC-50 AC-51 AC-52 AC-53 AC-54
+// 8 other cards:   AC-55 AC-56
+// 9 text, rights:  AC-57 AC-58 AC-59
+// then edge cases, regression, NH-1 to NH-20.
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
@@ -14,152 +28,72 @@ import { BRANCH_SCRIPT, TITLE_SCRIPT } from '../hooks/card-policy'
 import { PALETTES } from '../hooks/core/palette'
 import { loadStored, PANE_ARGS_HINT } from '../hooks/core/persist'
 import { cellWidth } from '../hooks/core/width'
-import { barCellsOf, ticketProgressOf } from '../hooks/core/progress'
 import { paneViewOf } from '../hooks/core/view'
+import * as progressNs from '../hooks/core/progress'
 import type { CardView, Child, ChildStatus, PaneView, Seg, Session } from '../hooks/core/types'
-import { BUSY_STATUS_LINE, FLOW_HOST_LOG, IDLE_STATUS_LINE, SIX_WORKER_MORE, SIX_WORKER_ROWS } from './fixtures/ws138/baseline'
+import { FLOW_HOST_LOG, IDLE_STATUS_LINE, SIX_WORKER_MORE, SIX_WORKER_ROWS } from './fixtures/ws138/baseline'
 
 tier('builtin')
 
-// Id map, in file order (a test carries its Intent line as its name; NH tests also carry their id):
-// 1 detection:       AC-01 AC-02 AC-03 AC-04 AC-05 AC-06 AC-07 AC-08 AC-09 AC-10 AC-11 (11 has two tests: remount, tickets off)
-// 2 ticket status:   AC-12 AC-13 (two tests: view, raw statuses) AC-14 AC-15
-// 3 bar and count:   AC-16 AC-17 (two tests) AC-18 (two tests: widths, cell glyphs) AC-19 AC-20 (two tests: hues, ticket statuses) AC-21 (three tests: same-prefix, cross-prefix, WS-9/WS-10 ties)
-//                    AC-22 (two tests: pane, one-line card) AC-23 AC-24 AC-25 (two tests: hues, ticket statuses) AC-26
-// 4 ticket rows:     AC-27 AC-28 (two tests) AC-29 AC-30 AC-31 AC-32 AC-33 AC-34 AC-35 AC-36 AC-37
-// 5 waiting:         AC-38 (three tests) AC-39 AC-40 (two tests) AC-41 AC-42 (two tests) AC-43 (two tests) AC-44 AC-45, Waiting vs snoozed and Woke (edge)
-// 6 other sessions:  AC-46 (two tests) AC-47
-// 7 text/permission: AC-48 (two H tests) AC-49 (H test) TC-1 (test) TC-2 (root suite)
-// Spec compliance and edge-case tests follow, then NH-1 to NH-14 (one test each).
-//
-// The runner imports code files only and has no file read, so the S layer (README, CHANGELOG, manifest, README sentence) cannot run here.
-// Its baselines are frozen from 6c505cf, to be committed before dispatch, beside this file in fixtures/ws138/ (README.baseline.md,
-// CHANGELOG.baseline.md, plugin.baseline.json, hooks.baseline.json, README-reads.baseline.txt) for the Workspace-root suite. The frozen pane
-// literals and the frozen host-call log (FLOW_HOST_LOG) are in fixtures/ws138/baseline.ts, also frozen from 6c505cf.
-
-// The testing module has no todo; use one when the runner offers it, else register nothing.
-const todo: (name: string) => void = (test as unknown as { todo?: (name: string) => void }).todo ?? (() => {})
-
-/** The longest bar the plan allows (L-2: `MAXBAR = 12` in hooks/core/progress.ts, set after the 44-column capture). One constant; cases derive from it. */
 const MAXBAR = 12
-
 const MIN = 60_000
 const HOUR = 60 * MIN
+const DAY = 24 * HOUR
 const NOW = 1_800_000_000_000
 const T0 = NOW - 90 * MIN
-const PFX = ['WS-', 'APP-'] as const
 const P = PALETTES.dark
-
-// ---------------------------------------------------------------- pure side: paneViewOf
 type Hue = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'violet' | 'gray' | 'none'
-type TStatus = 'working' | 'needs-you' | 'failed' | 'done' | 'stopped'
-const CHILD_OF: Record<TStatus, ChildStatus> = { working: 'working', 'needs-you': 'needs-you', failed: 'failed', done: 'done', stopped: 'idle' }
+const hueOf = (color?: string): Hue => ((Object.entries(P.text).find(([, hex]) => hex === color)?.[0] as Hue | undefined) ?? 'none')
+const rep = <T>(value: T, n: number): T[] => Array.from({ length: n }, () => value)
 
-/** A worker: label is its description; `at` is its start in minutes after T0; `ago` is minutes in its status. */
+// ================================================================ pure side: the view the pane draws (Waiting rules, other cards)
 const kid = (label: string, status: ChildStatus, at: number, ago = 2, id?: string): Child =>
   ({ id: id ?? `w-${label.replace(/\W+/g, '-')}`, label, status, since: NOW - ago * MIN, startedAt: T0 + at * MIN })
-/** One worker for a ticket: `scan <ID> alpha`, never starting with the id. */
-const tk = (ticket: string, status: TStatus, at: number, word = 'alpha'): Child => kid(`scan ${ticket} ${word}`, CHILD_OF[status], at)
-
 const sess = (over: Partial<Session> & { id: string }): Session => ({
   prefId: over.id, name: over.id, activityAt: NOW - MIN, raw: 'idle', statusSince: NOW - 2 * HOUR, title: `${over.id} title`, project: 'proj', isSelf: false, ...over,
 })
-type V = { width?: number; prefixes?: readonly string[]; own?: Partial<Session>; finishedAt?: number; workingShelf?: boolean; others?: Session[]; inactiveOpen?: boolean; snoozedOpen?: boolean; ownEntry?: { snoozedUntil?: number; snoozedAt?: number; wokeAt?: number } }
+type V = { report?: unknown; width?: number; own?: Partial<Session>; finishedAt?: number; workingShelf?: boolean; others?: Session[]; inactiveOpen?: boolean; snoozedOpen?: boolean; ownEntry?: { snoozedUntil?: number; snoozedAt?: number; wokeAt?: number } }
 const view = (children: Child[], o: V = {}): PaneView => {
   const base = loadStored(new Map()).stored
-  const prefixes = o.prefixes ?? PFX
   const stored = {
     ...base,
     entries: { ...base.entries, ...(o.ownEntry ? { own: o.ownEntry } : {}) },
     collapsed: { ...base.collapsed, ...(o.inactiveOpen ? { inactive: false } : {}), ...(o.snoozedOpen ? { snoozed: false } : {}) },
-    settings: { ...base.settings, workingShelf: o.workingShelf ?? false, ...(prefixes.length > 0 ? { tickets: prefixes } : {}) },
+    settings: { ...base.settings, workingShelf: o.workingShelf ?? false },
   }
   return paneViewOf({
     sessions: [sess({ id: 'own', isSelf: true, title: 'Orchestrate the release train with many parts to it, long enough to be cut', ...o.own }), ...(o.others ?? [])],
-    stored, finished: o.finishedAt === undefined ? {} : { own: o.finishedAt }, children, now: NOW, width: o.width ?? 44,
+    stored, finished: o.finishedAt === undefined ? {} : { own: o.finishedAt }, children, now: NOW, width: o.width ?? 44, ...({ report: o.report ?? null } as object),
     caps: { trueColor: true, pictures: false }, bell: 0, palette: P, projectColors: new Map([['proj', '#88aacc']]),
   })
 }
 const cardOf = (v: PaneView, pick: (c: CardView) => boolean = c => c.isSelected): CardView => v.shelves.flatMap(s => s.cards).find(pick)!
 const ownOf = (v: PaneView) => cardOf(v)
 const plain = (segs: readonly Seg[]) => segs.map(s => (s.kind === 'spinner' ? '⠋' : s.text)).join('')
-const hueOf = (color?: string): Hue => ((Object.entries(P.text).find(([, hex]) => hex === color)?.[0] as Hue | undefined) ?? 'none')
-const COUNT = /(?<![\d/])(\d+\/\d+)(?![\d/])/
-const countIn = (text: string): string | null => COUNT.exec(text)?.[1] ?? null
-const countOf = (segs: readonly Seg[]) => countIn(plain(segs))
-/**
- * The bar's cells between the title and the count (to the end of the line when there is no count), each as the hue it is drawn in.
- * A cell is counted by its colour, never by its glyph: a coloured background (a blank cell) counts, a non-blank glyph in a status hue counts.
- * The status and project runs are not part of the bar.
- */
-const barOf = (line: readonly Seg[]): Hue[] => {
-  const title = line.findIndex(s => s.kind === 'text' && s.role === 'title')
-  if (title < 0) return []
-  let end = line.length
-  line.forEach((s, i) => { if (i > title && s.kind === 'text' && /\d+\/\d+/.test(s.text)) end = i })
-  return line.slice(title + 1, end).flatMap(s => {
-    if (s.kind !== 'text' || s.role === 'status' || s.role === 'project') return []
-    const bg = hueOf(s.bg)
-    const fg = hueOf(s.color)
-    return [...s.text].flatMap(c => (bg !== 'none' ? [bg] : c.trim() !== '' && fg !== 'none' ? [fg] : []))
-  })
-}
-/** The line carries a segment with the role `title`: `barOf` reads nothing without one, so an absence check asserts it first. */
-const hasTitle = (line: readonly Seg[]) => line.some(s => s.kind === 'text' && s.role === 'title')
-const rep = (hue: Hue, n: number): Hue[] => Array.from({ length: n }, () => hue)
-const rowsOf = (v: PaneView) => ownOf(v).children?.rows ?? []
-const stripRow = (text: string) => text.replace(/^[\s│┃|●▸]*/, '')
-const LEAD = /^((?:WS|APP|app)-\d+)(?![\p{L}\p{N}])/u
-/** A row's lead: its ticket id when it starts with one, else its first two words (a worker's row). */
-const leadOf = (text: string) => { const s = stripRow(text); return LEAD.exec(s)?.[1] ?? s.split(/\s+/).slice(0, 2).join(' ') }
-const leads = (v: PaneView) => rowsOf(v).map(r => leadOf(plain(r.text)))
-const rowFor = (v: PaneView, id: string) => rowsOf(v).find(r => leadOf(plain(r.text)) === id)
-const rowText = (v: PaneView, id: string) => { const r = rowFor(v, id); return r ? plain(r.text) : '' }
-const dotHue = (segs: readonly Seg[] | undefined): Hue => hueOf((segs ?? []).find(s => s.kind === 'text' && s.text.includes('●'))?.color as string | undefined)
-const WIDTHS = Array.from({ length: 120 }, (_, i) => 120 - i)
-const lineAt = (kids: Child[], width: number, o: V = {}) => ownOf(view(kids, { ...o, width })).lines[1] ?? []
-/** The bar at the first (widest) width that draws exactly `n` cells; at 44 columns when no width does. */
-const barWith = (kids: Child[], n: number, o: V = {}): Hue[] => {
-  for (const w of WIDTHS) { const cells = barOf(lineAt(kids, w, o)); if (cells.length === n) return cells }
-  return barOf(lineAt(kids, 44, o))
-}
-const tickets = (n: number, status: TStatus = 'working') => Array.from({ length: n }, (_, i) => tk(`WS-${11 + i}`, status, i))
-const runsOf = (hues: readonly Hue[]) => hues.filter((h, i, all) => h !== all[i - 1])
-/** Pane widths from `from` down to `to`, widest first. */
-const sweep = (from: number, to: number) => Array.from({ length: from - to + 1 }, (_, i) => from - i)
-const roleOf = (s: Seg) => (s.kind === 'text' ? (s.role as string | undefined) : undefined)
-/** The title line as tokens, adjacent repeats collapsed: a role name, `sp` for a role-less all-space text, `other` for any other role-less text, `spin` for a spinner. */
-const tokensOf = (line: readonly Seg[]): string[] =>
-  line.map(s => (s.kind === 'spinner' ? 'spin' : roleOf(s) ?? (/^ +$/.test(s.text) ? 'sp' : 'other'))).filter((t, i, all) => t !== all[i - 1])
-/** The text of the segments with role `bar`, joined. */
-const barText = (line: readonly Seg[]) => line.filter(s => roleOf(s) === 'bar').map(s => (s.kind === 'text' ? s.text : '')).join('')
-/** The cells of the status slot on a one-line card: from the first spinner or `status` segment to the end. */
-const slotOfLine = (line: readonly Seg[]) => { const i = line.findIndex(s => s.kind === 'spinner' || roleOf(s) === 'status'); return i < 0 ? [] : line.slice(i) }
-/** The ticket status of each of N bar cells, from the locked pure rules (hooks/core/progress.ts, plan L-4 and L-6). */
-const statusCells = async (kids: Child[], n: number): Promise<string[]> => {
-  const progress = ticketProgressOf(kids, PFX)
-  return progress ? barCellsOf(progress.tickets, n) : []
-}
-const runsOfStatus = (cells: readonly string[]) => cells.filter((c, i, all) => c !== all[i - 1])
-const countRuns = (cells: readonly string[]) => runsOfStatus(cells).map(s => [s, cells.filter(c => c === s).length] as const)
+const statusOf = (v: PaneView) => plain(ownOf(v).lines[0]!)
+const rowsOfView = (v: PaneView) => ownOf(v).children?.rows ?? []
 
-// ---------------------------------------------------------------- host side: the module entry
+// ================================================================ host side: the module entry
 const FIELD_SEP = '\u001f'
 const ITEM_SEP = '\u001e'
 const TUE_10 = new Date(2026, 9, 13, 10, 0, 0).getTime()
-const DAY = 24 * HOUR
-type Sess = { name: string; status?: 'busy' | 'waiting' | 'idle' | 'completed'; cwd?: string; ageMs?: number; sinceMs?: number; title?: string }
+type Sess = { name: string; status?: 'busy' | 'waiting' | 'idle' | 'completed'; cwd?: string; ageMs?: number; sinceMs?: number; title?: string; branch?: string }
 const refOf = (name: string) => [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(16).padStart(6, '0').slice(-6)
 const idOf = (name: string) => `${refOf(name)}00-0000-4000-8000-000000000000`
 const S = (name: string, x: Omit<Sess, 'name'> = {}): Sess => ({ name, ...x })
+type Spec = { name: string; description: string; isDeferred?: boolean; inputSchema?: unknown }
 type World = {
   agents?: unknown[]; agentsFail?: boolean; store?: Map<string, unknown>; views?: Array<Record<string, unknown>>
-  host?: string[]; texts?: string[]; selfName?: string; ask?: boolean
+  host?: string[]; texts?: string[]; selfName?: string
+  /** Every tool the module registered, as registered (AC-01, AC-02). */
+  tools?: Spec[]
+  /** Programs the process runner refuses (exit 127): everything but `sh`, `ps` and `claude` (AC-59). */
+  refuseOtherPrograms?: boolean
+  /** A worker's permission check is put to the person (`ask`), as the engine does for a real open prompt. */
+  ask?: boolean
+  /** The time the session registry reports as now, once a test has moved the clock before the pane mounts (the mock clock refuses a multi-day move with live 5 s timers, so such a move happens before the session starts). */
+  baseMs?: number
 }
-/**
- * File, process and network events of the host layer (the event names the Claude Code types declare for files, programs, network and
- * tool servers). Reads answer with the host's default; the rest are refused. `fs.stat`, `fs.exists` and `process.run` have their own stubs below.
- */
 const HOST_READ_EVENTS = ['fs.read', 'fs.list', 'fs.ancestors', 'settings.read', 'session.repo', 'session.messages', 'prompt.read'] as const
 const HOST_REFUSED_EVENTS = ['fs.write', 'http.fetch', 'mcp.call', 'mcp.connect', 'model.complete', 'model.classify', 'model.fork', 'audio.speak', 'session.authorize', 'env.set'] as const
 const payloadOf = (e: unknown): string => { try { return JSON.stringify(e) ?? '' } catch { return String(e) } }
@@ -184,7 +118,6 @@ const engine = (on: On, sessions: Sess[], world: World) => {
   const clock = mock.clock(on, { now: TUE_10 })
   registered.set(on as object, { current, clock, mounts: 0 })
   const self = () => current.world.selfName ?? current.sessions[0]?.name ?? 'x'
-  // `reg` wraps registration only: the hook is registered as given, matcher arguments first.
   const reg = (name: string, ...rest: unknown[]) => {
     const hook = rest.pop() as (...a: unknown[]) => unknown
     ;(on as unknown as (...a: unknown[]) => void)(name, ...rest, (...a: unknown[]) => hook(...a))
@@ -194,8 +127,11 @@ const engine = (on: On, sessions: Sess[], world: World) => {
   reg('store.delete', ($s: unknown, e: { key: string }) => (current.store.delete(e.key), { value: undefined }))
   reg('store.keys', () => ({ value: [...current.store.keys()] }))
   reg('session.start', ($s: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  reg('session.end', ($s: unknown, e: { sessionId: string }) => ({ sessionId: e.sessionId }))
+  reg('session.compact', ($s: unknown, e: { messages: unknown[] }) => ({ messages: e.messages }))
   reg('session.id', () => ({ value: idOf(self()) }))
   reg('tool.call', { tool: 'ListAgents' }, () => ({ result: listingOf(current.sessions) }))
+  reg('tool.register', ($s: unknown, e: Spec) => (current.world.tools?.push(e), { value: { tool: e.name } }))
   reg('agent.list', () => (current.world.agentsFail ? { deny: 'unreadable' } : { value: current.world.agents ?? [] }))
   reg('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] } }))
   reg('config.list', () => ({ value: [] }))
@@ -206,19 +142,17 @@ const engine = (on: On, sessions: Sess[], world: World) => {
   reg('ui.open', () => ({ value: { isPlaced: true } }))
   reg('command.register', ($s: unknown, e: unknown) => (current.world.texts?.push(JSON.stringify(e)), { value: undefined }))
   reg('env.get', ($s: unknown, e: { name: string }) => ({ value: ({ TERM_PROGRAM: 'ghostty', COLORTERM: 'truecolor', HOME: '/h' } as Record<string, string>)[e.name] }))
-  reg('tool.check', ($s: unknown, e: unknown, next: (e: unknown) => unknown) => (current.world.ask ? { decision: 'ask' } : next(e)))
+  // The engine's own answer for a call to a mod's tool is "ask" (a permission prompt); only a hook of the mod can turn it into "allow" (AC-59).
+  reg('tool.check', ($s: unknown, e: { tool: string }, next: (e: unknown) => unknown) => (current.world.ask || e.tool.startsWith('mcp__bridge__') ? { decision: 'ask' } : next(e)))
   reg('classic.Stop', () => ({}))
   reg('classic.StopFailure', () => ({}))
   reg('classic.UserPromptSubmit', () => ({}))
-  // A recording stub for every other file, process and network event of the host layer (the testing module offers no catch-all):
-  // one line per call, `<event> <payload>`, in `world.host`. Reads and listings take the host's default answer; writes, spawns and network calls are refused.
   for (const name of HOST_READ_EVENTS) {
     reg(name, ($s: unknown, e: unknown, next: (e: unknown) => unknown) => (current.world.host?.push(`${name} ${payloadOf(e)}`), next(e)))
   }
   for (const name of HOST_REFUSED_EVENTS) {
     reg(name, ($s: unknown, e: unknown) => (current.world.host?.push(`${name} ${payloadOf(e)}`), { deny: 'recorded' }))
   }
-  // `process.spawn` streams: its hook is an async generator, so it is registered without the wrapper.
   ;(on as unknown as (name: string, hook: unknown) => void)('process.spawn', async function* ($s: unknown, e: unknown) { current.world.host?.push(`process.spawn ${payloadOf(e)}`); return { deny: 'recorded' } })
   reg('fs.stat', ($s: unknown, e: { path: string }) => (current.world.host?.push(`fs.stat ${e.path}`), { deny: 'ENOENT' }))
   reg('fs.exists', ($s: unknown, e: { path: string }) => (current.world.host?.push(`fs.exists ${e.path}`), { value: false }))
@@ -226,7 +160,8 @@ const engine = (on: On, sessions: Sess[], world: World) => {
     const argv = e.argv
     current.world.host?.push(`process.run ${argv.join(' ')}`)
     const done = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
-    if (argv[0] === 'sh' && argv[2] === REGISTRY_SCRIPT) return done(registryOf(current.sessions, current.base))
+    if (current.world.refuseOtherPrograms && !['sh', 'ps', 'claude'].includes(argv[0] ?? '')) return { value: { exitCode: 127, stdout: '', stderr: 'not found', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (argv[0] === 'sh' && argv[2] === REGISTRY_SCRIPT) return done(registryOf(current.sessions, current.world.baseMs ?? current.base))
     if (argv[0] === 'sh' && argv[2] === TITLE_SCRIPT) {
       return done(argv.slice(4).map(spec => {
         const found = current.sessions.find(one => idOf(one.name) === (spec.split('/').at(-1) ?? ''))
@@ -234,7 +169,9 @@ const engine = (on: On, sessions: Sess[], world: World) => {
         return `${ai}${FIELD_SEP}${FIELD_SEP}${ITEM_SEP}`
       }).join(''))
     }
-    if (argv[0] === 'sh' && argv[2] === BRANCH_SCRIPT) return done(argv.slice(4).map(() => `${FIELD_SEP}${ITEM_SEP}`).join(''))
+    if (argv[0] === 'sh' && argv[2] === BRANCH_SCRIPT) {
+      return done(argv.slice(4).map(dir => `${current.sessions.find(one => (one.cwd ?? `/p/${one.name}`) === dir)?.branch ?? ''}${FIELD_SEP}${ITEM_SEP}`).join(''))
+    }
     if (argv[0] === 'ps') return done(current.sessions.map((s, i) => `${i + 1} ttys00${i + 1} claude --x TERM_PROGRAM=ghostty`).join('\n') + '\n')
     if (argv[0] === 'claude' && argv[1] === 'agents') return done('[]')
     return done('ok\n')
@@ -242,9 +179,10 @@ const engine = (on: On, sessions: Sess[], world: World) => {
   return { store: current.store, clock, mounts: 0, pending: undefined }
 }
 type Ui = any
-const mountPane = async ($: any, on: On, sessions: Sess[], world: World = {}, cols = 44) => {
+const mountPane = async ($: any, on: On, sessions: Sess[], world: World, cols = 44, before?: (clock: ReturnType<typeof mock.clock>) => Promise<void>) => {
   const { store, clock, mounts, pending } = engine(on, sessions, world)
   await pending
+  if (before) await before(clock)
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/repo' } as never)
   await $.command.run({ command: 'bridge', args: '' } as never)
   const ui: Ui = await $.ui.mount({
@@ -252,865 +190,2130 @@ const mountPane = async ($: any, on: On, sessions: Sess[], world: World = {}, co
     props: { title: 'Bridge', isFocused: false, bodyColumns: cols, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} } as never,
     requestId: mounts === 0 ? 'bridge' : `bridge-${mounts}`,
   })
-  return { ui, store, clock, world }
+  return { ui, store, clock }
 }
-const withPrefixes = (extra: World = {}): World => ({ ...extra, store: new Map<string, unknown>([['setting:tickets', [...PFX]], ...(extra.store ?? [])]) })
 /** One redraw: the pane refreshes every 5 seconds, so exactly 5000 ms. */
 const redraw = async (clock: { advance: (ms: number) => Promise<unknown> }, ui: Ui) => { await clock.advance(5000); await ui.advance(5000) }
-const linesById = async (ui: Ui, id: string) => {
+
+// ---------------------------------------------------------------- the adapters the plan names (Open Questions rows 1 to 4)
+type State = 'planned' | 'in progress' | 'done'
+type Tk = { id: string; state: State; worker?: string }
+const tk = (id: string, state: State, worker?: string): Tk => ({ id, state, ...(worker !== undefined ? { worker } : {}) })
+/** Open Questions row 3 (provisional shape, /ddd:plan locks it): one entry per ticket, states spelled `planned`, `in_progress`, `done`. */
+const wire = (t: Tk) => ({ id: t.id, state: t.state === 'in progress' ? 'in_progress' : t.state, ...(t.worker !== undefined ? { worker: t.worker } : {}) })
+/** Open Questions row 1 (provisional): a report names a worker by its listed id. */
+const F_workerRef = (worker: { id: string }): string => worker.id
+type Answer = { text: string; refused: boolean }
+const NO_ANSWER: Answer = { text: '', refused: false }
+const answerOf = (res: any): Answer => {
+  if (!res || typeof res !== 'object') return NO_ANSWER
+  const refused = typeof res.deny === 'string' || res.isError === true
+  const raw = typeof res.deny === 'string' ? res.deny : typeof res.text === 'string' ? res.text : res.result === undefined ? '' : typeof res.result === 'string' ? res.result : JSON.stringify(res.result)
+  return { text: raw, refused }
+}
+/** The tool as registered (`mcp__bridge__<name>`); the provisional name until the module registers one. A call to a tool nobody implements throws in the engine and reads as no answer (see F_call). */
+const toolOf = (world: World) => `mcp__bridge__${world.tools?.[0]?.name ?? 'report_tickets'}`
+const F_call = async ($: any, world: World, input: Record<string, unknown>, agentId?: string): Promise<Answer> => {
+  try { return answerOf(await $.tool.call({ tool: toolOf(world), ...input, ...(agentId !== undefined ? { agentId } : {}) } as never)) } catch (e) {
+    // Only "nobody implements this tool" reads as no answer (the tool does not exist yet); any other engine error is a harness defect and surfaces.
+    if (/no implementation for tool\.call/.test(String(e))) return NO_ANSWER
+    throw e
+  }
+}
+/** Open Questions row 3: the report adapter; the main conversation unless `agentId` is given. */
+const F_report = ($: any, world: World, tickets: readonly Tk[], epic?: string, agentId?: string) =>
+  F_call($, world, { all_tickets: tickets.map(wire), ...(epic !== undefined ? { epic } : {}) }, agentId)
+/** The same call with raw (possibly malformed) entries. */
+const F_reportRaw = ($: any, world: World, all_tickets: unknown[], epic?: unknown) => F_call($, world, { all_tickets, ...(epic !== undefined ? { epic } : {}) })
+/** Open Questions row 3: the read-back adapter (AC-62). */
+const F_readback = ($: any, world: World, agentId?: string) => F_call($, world, { read_back: true }, agentId)
+/** Open Questions row 2: a listed subagent of a worker, through the parent link the host lists. */
+const F_rollup = (id: string, parentId: string, status: string, description: string, startMin: number, extra: object = {}) => H_AGENT(id, status, description, startMin, { parentId, ...extra })
+// F_limit (Open Questions row 4): no check can be expressed until /ddd:plan locks the usage-limit signal; see the placeholders under "Edge cases".
+
+const H_AGENT = (id: string, status: string, description: string, startMin: number, extra: object = {}) =>
+  ({ id, description, type: 'Explore', status, startedAt: TUE_10 - 60 * MIN + startMin * MIN, statusSince: TUE_10 - 2 * MIN, ...extra })
+const TIT = 'Release 42'
+const own = (x: Omit<Sess, 'name'> = {}) => S('own', { title: TIT, ...x })
+const mk = (w: World = {}): World => ({ tools: [], texts: [], agents: [], store: new Map<string, unknown>(), ...w })
+const withPrefixes = (w: World = {}): World => mk({ ...w, store: new Map<string, unknown>([['setting:tickets', ['WS-', 'APP-']], ...(w.store ?? [])]) })
+
+/** `before` runs after the engine is stubbed and before the session starts: no timer is live yet, so the clock may move by days. */
+type RigOpts = { world?: World; sessions?: Sess[]; cols?: number; before?: (w: World, clock: ReturnType<typeof mock.clock>) => Promise<void> }
+const rig = async ($: any, on: On, o: RigOpts = {}) => {
+  const world = o.world ?? mk()
+  if (!world.tools) world.tools = []
+  const sessions = o.sessions ?? [own()]
+  const cols = o.cols ?? 44
+  const m = await mountPane($, on, sessions, world, cols, o.before ? clock => o.before!(world, clock) : undefined)
+  return {
+    $, on, world, sessions, cols, ...m,
+    report: (t: readonly Tk[], epic?: string) => F_report($, world, t, epic),
+    readback: () => F_readback($, world),
+    redraw: () => redraw(m.clock, m.ui),
+    lines: (name = 'own') => cardLines(m.ui, name),
+    title: async (name = 'own') => ((await cardLines(m.ui, name))[1] ?? ''),
+  }
+}
+type Rig = Awaited<ReturnType<typeof rig>>
+/** Mount the pane again over the same world and store (resume, reload, a second session). */
+const remount = (r: Rig, patch: { selfName?: string; cols?: number; sessions?: Sess[] } = {}) => {
+  if (patch.selfName !== undefined) r.world.selfName = patch.selfName
+  return rig(r.$, r.on, { world: r.world, sessions: patch.sessions ?? r.sessions, cols: patch.cols ?? r.cols })
+}
+
+// ---------------------------------------------------------------- drawn-outcome readers
+const cardLines = async (ui: Ui, name = 'own') => {
   const lines: string[] = []
   for (const key of ['line1', 'line2', 'line3']) {
-    const one = await ui.find({ key: `${key}:${id}` })
+    const one = await ui.find({ key: `${key}:${refOf(name)}` })
     if (one) lines.push(one.text as string)
   }
   return lines
 }
-const cardLines = (ui: Ui, name = 'own') => linesById(ui, refOf(name))
-const H_AGENT = (id: string, status: string, description: string, startMin: number, extra: object = {}) =>
-  ({ id, description, type: 'Explore', status, startedAt: TUE_10 - 60 * MIN + startMin * MIN, statusSince: TUE_10 - 2 * MIN, ...extra })
-/**
- * The drawn worker or ticket rows under the cards, found by what they show (a row starts with the tree glyph), never by element key.
- * A row's nested boxes repeat its text, so a text already taken is not taken twice.
- */
+const COUNT = /(?<![\d/])(\d+\/\d+)(?![\d/])/
+const countIn = (text: string): string | null => COUNT.exec(text)?.[1] ?? null
+const walk = (el: any, fn: (e: any) => void) => { if (el && typeof el === 'object') { fn(el); for (const c of el.children ?? []) walk(c, fn) } }
+/** The bar's cells of an element, left to right: each `━` or `╸` with the hue it is drawn in. */
+const cellsOfEl = (el: any): Array<{ glyph: string; hue: Hue }> => {
+  const out: Array<{ glyph: string; hue: Hue }> = []
+  walk(el, e => {
+    if (e.type !== 'Text') return
+    const text = (e.children ?? []).filter((c: unknown) => typeof c === 'string').join('')
+    for (const c of text) if (c === '━' || c === '╸') out.push({ glyph: c, hue: hueOf(e.props?.color as string | undefined) })
+  })
+  return out
+}
+const titleCells = async (ui: Ui, name = 'own') => cellsOfEl(await ui.find({ key: `line2:${refOf(name)}` }))
+const hues = (cells: ReadonlyArray<{ hue: Hue }>) => cells.map(c => c.hue)
+const glyphs = (cells: ReadonlyArray<{ glyph: string }>) => cells.map(c => c.glyph).join('')
+/** The title of a card's title line: the text of its first button (the card's open button). */
+const titleOfLine = async (ui: Ui, name = 'own') => {
+  const el = await ui.find({ key: `line2:${refOf(name)}` })
+  let found = ''
+  walk(el, e => { if (!found && e.type === 'Button') found = String(e.props?.label ?? '') })
+  return found
+}
+const ownRowText = async (ui: Ui, name = 'own') => String((await ui.find({ key: `row:${refOf(name)}` }))?.text ?? '')
+const ownRowCells = async (ui: Ui, name = 'own') => cellsOfEl(await ui.find({ key: `row:${refOf(name)}` }))
 const ROW_START = /^\s*[│┃|]/
+const spinnerless = (t: string) => t.replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, '').replace(/\s+/g, ' ').trim()
 const drawnRows = async (ui: Ui): Promise<string[]> => {
   const texts = (await ui.findAll({ type: 'Box' })).map((e: any) => String(e.text ?? '')).filter((t: string) => ROW_START.test(t))
   return texts.filter((t: string, i: number) => !texts.slice(0, i).some((before: string) => before.trim() === t.trim()))
 }
-const hLeads = async (ui: Ui) => (await drawnRows(ui)).map(leadOf)
-/** The hue of the status dot in each drawn row, in row order: the dot's colour read from the row's own element tree. */
-const rowDotHues = async (ui: Ui): Promise<Hue[]> => {
+/** Each drawn row's text and the hue of its first dot, in row order. */
+const rowInfo = async (ui: Ui): Promise<Array<{ text: string; hue: Hue }>> => {
   const dotsIn = (el: any): Hue[] => {
-    if (el === null || typeof el !== 'object') return []
-    const own = el.type === 'Text' && String(el.text ?? (el.children ?? []).filter((c: unknown) => typeof c === 'string').join('')).includes('●') ? [hueOf(el.props?.color as string | undefined)] : []
-    return [...own, ...(el.children ?? []).flatMap(dotsIn)]
+    const out: Hue[] = []
+    walk(el, e => {
+      if (e.type === 'Text' && (e.children ?? []).filter((c: unknown) => typeof c === 'string').join('').includes('●')) out.push(hueOf(e.props?.color as string | undefined))
+    })
+    return out
   }
   const boxes = (await ui.findAll({ type: 'Box' })).filter((e: any) => ROW_START.test(String(e.text ?? '')))
   const firsts = boxes.filter((e: any, i: number) => !boxes.slice(0, i).some((before: any) => String(before.text).trim() === String(e.text).trim()))
-  return firsts.flatMap((e: any) => dotsIn(e).slice(0, 1))
+  return firsts.map((e: any) => ({ text: String(e.text), hue: dotsIn(e)[0] ?? 'none' }))
 }
+const rowOfId = (rows: Array<{ text: string; hue: Hue }>, id: string) => rows.find(r => has(r.text, id))
 const allText = async (ui: Ui): Promise<string[]> => (await ui.findAll({ type: 'Text' })).map((e: any) => String(e.text ?? ''))
-const ownCount = async (ui: Ui) => countIn((await cardLines(ui))[1] ?? '')
-const ownStatus = async (ui: Ui) => (await cardLines(ui))[0] ?? ''
-/** The own card is drawn: its title shows on its lines. */
-const ownTitleDrawn = async (ui: Ui, title: string) => (await cardLines(ui)).join('\n').includes(title)
-const THREE = (): unknown[] => [H_AGENT('a1', 'running', 'scan WS-11 alpha', 0), H_AGENT('a2', 'running', 'fix WS-12 beta', 1), H_AGENT('a3', 'running', 'port APP-3 gamma', 2)]
-/** A worker's open question through the host, as the existing child-row Needs you tests raise it: the permission check answers `ask`. */
+const moreLine = async (ui: Ui) => (await allText(ui)).map(t => /\+(\d+) more/.exec(t)?.[0]).find(Boolean) ?? null
+/** Ticket rows drawn outside any element that is hidden until the pointer hovers. */
+const visibleRows = async (ui: Ui): Promise<string[]> => {
+  const root = (await ui.findAll({ type: 'Box' }))[0]
+  const out: string[] = []
+  const go = (el: any, hidden: boolean) => {
+    if (!el || typeof el !== 'object') return
+    const isHidden = hidden || el.props?.display === 'none'
+    if (!isHidden && el.type === 'Box' && ROW_START.test(String(el.text ?? ''))) out.push(String(el.text))
+    for (const c of el.children ?? []) go(c, isHidden)
+  }
+  go(root, false)
+  return out.filter((t, i) => !out.slice(0, i).some(before => before.trim() === t.trim()))
+}
+
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** `id` as a whole token (not glued into a longer id). */
+const has = (text: string, id: string) => new RegExp(`(?<![\\w-])${esc(id)}(?![\\w-])`).test(text)
+const clauses = (text: string) => text.split(/[;\n.]/).map(c => c.trim()).filter(Boolean)
+/** The stretch of an answer that belongs to one id: from the id to the next of `ids` (format-neutral). */
+const segmentOf = (text: string, id: string, ids: readonly string[]) => {
+  const start = text.search(new RegExp(`(?<![\\w-])${esc(id)}(?![\\w-])`))
+  if (start < 0) return ''
+  const after = ids.filter(o => o !== id).map(o => { const at = text.indexOf(o, start + id.length); return at < 0 ? text.length : at }).sort((a, b) => a - b)
+  return text.slice(start, after[0] ?? text.length)
+}
+const num = (text: string, n: number) => new RegExp(`(?<![\\w-])${n}(?![\\w-])`).test(text)
+const IN_PROGRESS = /in[ _-]progress/i
+
+/** 25 interleaved states: 8 done, 6 in progress, 2 attention (in progress with a failed worker), 9 planned (F-25). */
+const STATES25 = ['planned', 'done', 'ip', 'planned', 'attn', 'done', 'planned', 'ip', 'done', 'planned', 'ip', 'done', 'planned', 'attn', 'ip', 'done', 'planned', 'done', 'ip', 'planned', 'done', 'planned', 'ip', 'done', 'planned'] as const
+/** Ids that share no prefix: letters differ per ticket. */
+const uid = (i: number) => `${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + Math.floor(i / 26))}-${i + 1}`
+type Kind = 'done' | 'ip' | 'attn' | 'planned'
+/** A report of the given kinds in a fixed scrambled order, with the failed workers its attention tickets name. */
+const many = (kinds: readonly Kind[]): { tickets: Tk[]; agents: unknown[] } => {
+  const tickets: Tk[] = []
+  const agents: unknown[] = []
+  kinds.forEach((kind, i) => {
+    const id = uid(i)
+    if (kind === 'attn') { agents.push(H_AGENT(`w-${i}`, 'failed', `fix ${id} alpha`, i)); tickets.push(tk(id, 'in progress', F_workerRef({ id: `w-${i}` }))) }
+    else tickets.push(tk(id, kind === 'ip' ? 'in progress' : kind, undefined))
+  })
+  return { tickets, agents }
+}
+const kindsOf = (counts: { done?: number; ip?: number; attn?: number; planned?: number }): Kind[] => {
+  const list: Kind[] = [...rep<Kind>('done', counts.done ?? 0), ...rep<Kind>('ip', counts.ip ?? 0), ...rep<Kind>('attn', counts.attn ?? 0), ...rep<Kind>('planned', counts.planned ?? 0)]
+  // A fixed stride permutation, so the report order is neither grouped nor sorted.
+  const n = list.length
+  const step = [7, 11, 13, 17, 19].find(s => n % s !== 0) ?? 1
+  return list.map((_, i) => list[(i * step) % n]!)
+}
+const THREE = [tk('AB-1', 'done'), tk('CD-2', 'in progress'), tk('EF-3', 'planned')]
+const F25 = () => many(STATES25.map(s => s as Kind))
+/** Whether the own card shows a bar (any bar glyph on its title line). */
+const hasBar = async (ui: Ui, name = 'own') => (await titleCells(ui, name)).length > 0
+const SIX = () => [
+  H_AGENT('s1', 'running', 'review docs', 0), H_AGENT('s2', 'completed', 'lint pass', 1), H_AGENT('s3', 'failed', 'trim fixtures', 2),
+  H_AGENT('s4', 'running', 'scan WS-11 alpha', 3), H_AGENT('s5', 'running', 'tidy shelf', 4), H_AGENT('s6', 'killed', 'port notes', 5),
+]
+const BASE_ROWS = SIX_WORKER_ROWS.map(spinnerless)
 const askFor = async ($: any, world: World, agentId: string) => {
   world.ask = true
-  await $.tool.check({ tool: 'Bash', command: 'ls', agentId, tool_use_id: `tu-${agentId}` } as never)
+  try { await $.tool.check({ tool: 'Bash', input: { command: 'ls' }, agentId, tool_use_id: `tu-${agentId}` } as never) } finally { world.ask = false }
 }
-/**
- * The flow both runtime contract checks count, from before the mount: mount the pane with workers on three tickets, run `/bridge tickets WS-`,
- * 13 redraws (65 s of fake time, so the 30 s agents cross-check and the 60 s pull-request read both run). Returns every recorded file,
- * process and network call, sorted, and the mounted pane, so a check can prove the flow reached the feature's state (R-16).
- */
-const flowHostLog = async ($: any, on: On): Promise<{ log: string[]; ui: Ui }> => {
-  const world: World = { agents: THREE(), host: [] }
-  const { ui, clock } = await mountPane($, on, [S('own')], world)
-  await $.command.run({ command: 'bridge', args: 'tickets WS-' } as never)
-  for (let i = 0; i < 13; i++) await redraw(clock, ui)
-  return { log: [...world.host!].sort(), ui }
+const sessionEnd = ($: any, reason: string, name = 'own') => $.session.end({ reason, sessionId: idOf(name), resume: { id: idOf(name) } } as never)
+/** The one lifecycle adapter (R-9; engine facts L-5). `/clear` and an in-process `/resume`: session end with the reason and the old id, then the session id switches with NO session start (the pane only redraws). Any other end: the process stops and a new one starts (a session start under `to`, else the same id); the store is kept. */
+const F_lifecycle = async (r: Rig, o: { end: string; from?: string; to?: string; sessions?: Sess[] }) => {
+  await sessionEnd(r.$, o.end, o.from ?? r.world.selfName ?? r.sessions[0]?.name ?? 'own')
+  if (o.sessions) r.sessions.splice(0, r.sessions.length, ...o.sessions)
+  if (o.end === 'clear' || o.end === 'resume') {
+    if (o.to === undefined) throw new Error('F_lifecycle: a clear or an in-process resume switches the session id; name the new one with `to`')
+    r.world.selfName = o.to
+    return r
+  }
+  return remount(r, { ...(o.to !== undefined ? { selfName: o.to } : {}), ...(o.sessions ? { sessions: o.sessions } : {}) })
 }
-/** What the flow shows after the 13 redraws: prefix `WS-` makes WS-11 and WS-12 two tickets (APP-3 is no ticket), and the idle own card with running workers reads Waiting. */
-const flowReached = async (ui: Ui) => ({ count: await ownCount(ui), waiting: /Waiting/.test(await ownStatus(ui)) })
-const eventNames = (lines: readonly string[]) => [...new Set(lines.map(line => line.split(' ')[0]!))].sort()
-const distinct = (lines: readonly string[]) => [...new Set(lines)].sort()
+const EMPTY_TEXT = 'The stored list is empty.'
+/** R-5: an empty read-back is exactly the locked sentence, and no id reported earlier leaks into it. */
+const emptyReadback = (text: string, earlierIds: readonly string[]) => ({ exact: text === EMPTY_TEXT, leaked: earlierIds.filter(id => has(text, id)) })
+const EMPTY_OK = { exact: true, leaked: [] as string[] }
+const THREE_IDS = ['AB-1', 'CD-2', 'EF-3']
 
-// ================================================================ 1. Detection (AC-01 to AC-11)
-describe('1. detection', () => {
-  test('Owner with ticket prefixes set sees ticket progress once the own session\'s workers span two tickets', () => {
-    const v = view([tk('WS-11', 'working', 0), tk('WS-12', 'done', 1)])
-    expect({ count: countOf(ownOf(v).lines[1]!), leads: leads(v) }).toEqual({ count: '1/2', leads: ['WS-11', 'WS-12'] })
+// ---------------------------------------------------------------- the locked answers (plan L-2)
+const SUFFIX = ' The ticket list did not change.'
+const refusal = (core: string) => `Refused: ${core}${SUFFIX}`
+const WORKER_REFUSAL = refusal('only the main conversation can report tickets or read them back.')
+const STATE_HELP = 'use planned, in_progress or done.'
+/** An accepted answer's parts (R-4): split on line breaks only; the done part is the line starting `Done tickets removed:`. */
+const partsOf = (a: string) => {
+  const ls = a.split('\n')
+  const removed = ls.find(l => l.startsWith('Removed ')) ?? ''
+  const done = ls.find(l => l.startsWith('Done tickets removed:')) ?? ''
+  const idsAfter = (l: string, mark: string) => (l.includes(mark) ? l.slice(l.indexOf(mark) + mark.length).split(', ').map(s => s.trim()).filter(Boolean) : [])
+  return { first: ls[0] ?? '', removedCount: /^Removed (\d+)/.exec(removed)?.[1] ?? null, open: idsAfter(removed, ': '), done: idsAfter(done, ': '), cleared: /cleared (\d+)/.exec(ls[0] ?? '')?.[1] ?? null }
+}
+const sorted = (list: readonly string[]) => [...list].sort()
+
+// ---------------------------------------------------------------- a stored report seeded before the pane mounts (R-7)
+// The tool registers at session start, so no report can be made before it. A report that must be days old is put in the shared store
+// under the locked key and shape (L-2, L-3): `tickets:<session id>` -> `{ v: 1, at, tickets, epic? }`.
+const keyOf = (name: string) => `tickets:${idOf(name)}`
+const recordOf = (tickets: readonly Tk[], at: number, epic?: string) => ({ v: 1, at, tickets: tickets.map(wire), ...(epic !== undefined ? { epic } : {}) })
+const withRecord = (name: string, tickets: readonly Tk[], at: number, w: World = {}): World =>
+  mk({ ...w, store: new Map<string, unknown>([[keyOf(name), recordOf(tickets, at)], ...(w.store ?? [])]) })
+
+// ================================================================ 1. Reporting tickets (tool)
+/** The first sentence of the registered description, as locked in plan L-1 (the Bridge runner cannot import the new `hooks/core/report.ts` before it exists, so the sentence is written out). */
+const FIRST_SENTENCE = 'Send every ticket each time you call this, done ones included, because each report replaces the previous list whole.'
+describe('1. reporting tickets', () => {
+  const describedBy = async ($: any, on: On) => (await rig($, on)).world.tools![0]?.description ?? ''
+  // AC-01
+  test('The main conversation sees Bridge\'s ticket tool from its first turn without searching', async ($, on) => {
+    const r = await rig($, on)
+    expect({ names: r.world.tools!.map(t => t.name), deferred: r.world.tools!.map(t => t.isDeferred) }).toEqual({ names: ['report_tickets'], deferred: [false] })
   })
-  test('Owner whose workers all work on one ticket sees the card unchanged', () => {
-    const v = view([tk('WS-11', 'working', 0, 'a'), tk('WS-11', 'done', 1, 'b'), tk('WS-11', 'working', 2, 'c'), tk('WS-11', 'failed', 3, 'd')])
-    expect({ count: countOf(ownOf(v).lines[1]!), rows: rowsOf(v).length }).toEqual({ count: null, rows: 4 })
+  // AC-02: the description captured as registered
+  test('The tool description tells the orchestrator to send every ticket each time', async ($, on) => {
+    expect((await describedBy($, on)).split(/(?<=[.!?])\s/)[0]).toBe(FIRST_SENTENCE)
   })
-  test('Owner whose workers name no ticket sees the card unchanged', () => {
-    const v = view([kid('review docs', 'working', 0), kid('lint pass', 'done', 1), kid('trim fixtures', 'working', 2)])
-    expect({ count: countOf(ownOf(v).lines[1]!), rows: rowsOf(v).length }).toEqual({ count: null, rows: 3 })
+  // AC-02
+  test('The tool description tells the orchestrator to send every ticket each time (state and worker)', async ($, on) => {
+    const d = await describedBy($, on)
+    expect({ state: d.includes('its state (planned, in_progress or done)'), worker: d.includes('that worker\'s agentId from the Agent tool result') }).toEqual({ state: true, worker: true })
   })
-  test('Owner with ticket prefixes off sees no ticket progress even when worker text holds ids', () => {
-    const v = view([tk('WS-138', 'working', 0), tk('WS-139', 'working', 1)], { prefixes: [] })
-    expect({ count: countOf(ownOf(v).lines[1]!), rows: rowsOf(v).map(r => plain(r.text).includes('WS-1')) }).toEqual({ count: null, rows: [true, true] })
+  // AC-02
+  test('The tool description tells the orchestrator to send every ticket each time (report again when a state changes)', async ($, on) => {
+    expect((await describedBy($, on)).includes('Report again whenever a ticket\'s state changes')).toBe(true)
   })
-  test('Owner sees `WS-7` and `WS-07` counted as two tickets', () => {
-    const v = view([tk('WS-7', 'working', 0), tk('WS-07', 'working', 1)])
-    expect(countOf(ownOf(v).lines[1]!)).toBe('0/2')
+  // AC-02
+  test('The tool description tells the orchestrator to send every ticket each time (at most one report per turn)', async ($, on) => {
+    expect((await describedBy($, on)).includes('make at most one report per turn')).toBe(true)
   })
-  test('Owner whose worker text has the wrong letter case gets no ticket from it', () => {
-    // `ws-138` and `APP-14` match no prefix (case); `app-12`, `app-13` match prefix `app`: two tickets.
-    const v = view([kid('scan ws-138 a', 'working', 0), kid('scan app-12 b', 'working', 1), kid('scan app-13 c', 'working', 2), kid('scan APP-14 d', 'working', 3)], { prefixes: ['WS-', 'app'] })
-    expect(countOf(ownOf(v).lines[1]!)).toBe('0/2')
+  // AC-03
+  test('The orchestrator reports a valid list and the tool answers that it was accepted with its ticket count', async ($, on) => {
+    const r = await rig($, on)
+    expect((await r.report(THREE)).text.split('\n')[0]).toBe('Accepted: 3 tickets.')
   })
-  test('Owner sees a worker that names two tickets counted toward the first only', () => {
-    const v = view([kid('do WS-1 and WS-2', 'working', 0), kid('WS-3 scan', 'working', 1)])
-    expect({ count: countOf(ownOf(v).lines[1]!), leads: leads(v) }).toEqual({ count: '0/2', leads: ['WS-1', 'WS-3'] })
+  // AC-03
+  test('The orchestrator reports a valid list and the tool answers that it was accepted with its ticket count (one ticket)', async ($, on) => {
+    const r = await rig($, on)
+    expect((await r.report([tk('AB-1', 'planned')])).text.split('\n')[0]).toBe('Accepted: 1 ticket.')
   })
-  test('Owner sees ids glued inside longer words ignored', () => {
-    const v = view([kid('scan XWS-12 a', 'working', 0), kid('scan WS-12b b', 'working', 1), kid('scan (WS-12) c', 'working', 2), kid('scan WS-12. d', 'working', 3), kid('scan WS-13 e', 'working', 4)])
-    expect(countOf(ownOf(v).lines[1]!)).toBe('0/2')
+  const FOUR = [tk('AB-1', 'done'), tk('CD-2', 'in progress'), tk('EF-3', 'planned'), tk('GH-4', 'planned')]
+  const leave = async ($: any, on: On) => {
+    const r = await rig($, on)
+    await r.report(FOUR)
+    return partsOf((await r.report([tk('CD-2', 'in progress'), tk('JK-5', 'planned')])).text)
+  }
+  // AC-60
+  test('The orchestrator leaves tickets out of a report and the answer names each removed ticket, done ones separately', async ($, on) => {
+    const p = await leave($, on)
+    expect({ open: sorted(p.open), done: p.done }).toEqual({ open: ['EF-3', 'GH-4'], done: ['AB-1'] })
   })
-  test('Owner sees a worker\'s agent type never used as its ticket', async ($, on) => {
-    // Two real tickets plus a worker whose only id is its type: the type adds no third ticket.
-    const agents = [H_AGENT('a1', 'running', 'scan WS-11 alpha', 0), H_AGENT('a2', 'running', 'fix WS-12 beta', 1), H_AGENT('a3', 'running', 'tidy the shelf', 2, { type: 'WS-99-runner' })]
-    const { ui } = await mountPane($, on, [S('own')], withPrefixes({ agents }))
-    expect(await ownCount(ui)).toBe('0/2')
+  // AC-60
+  test('The orchestrator leaves tickets out of a report and the answer names each removed ticket, done ones separately (done part)', async ($, on) => {
+    const p = await leave($, on)
+    expect({ done: p.done, doneAlsoInOpenPart: p.open.includes('AB-1') }).toEqual({ done: ['AB-1'], doneAlsoInOpenPart: false })
   })
-  test('Owner sees ticket progress appear within one redraw of a second ticket being listed', async ($, on) => {
-    const world = withPrefixes({ agents: [H_AGENT('a1', 'running', 'scan WS-11 alpha', 0)] })
-    const { ui, clock } = await mountPane($, on, [S('own')], world)
-    const before = await ownCount(ui)
-    world.agents = [H_AGENT('a1', 'running', 'scan WS-11 alpha', 0), H_AGENT('a2', 'running', 'fix WS-12 beta', 1)]
-    await redraw(clock, ui)
-    expect({ before, after: await ownCount(ui) }).toEqual({ before: null, after: '0/2' })
+  // AC-60: a kept ticket is not named as removed
+  test('The orchestrator leaves tickets out of a report and the answer names each removed ticket, done ones separately (kept CD-2 not named as removed)', async ($, on) => {
+    const p = await leave($, on)
+    expect({ removedNamed: p.done.includes('AB-1'), keptInRemoved: [...p.open, ...p.done].includes('CD-2') }).toEqual({ removedNamed: true, keptInRemoved: false })
   })
-  test('Owner sees ticket progress disappear within one redraw once fewer than two tickets remain', async ($, on) => {
-    const two = [H_AGENT('a1', 'running', 'scan WS-11 alpha', 0), H_AGENT('a2', 'completed', 'fix WS-12 beta', 1)]
-    const first = await mountPane($, on, [S('own')], withPrefixes({ agents: two }))
-    const shown = await ownCount(first.ui)
-    // A mod reload drops the forgotten finished worker: the remount lists only WS-11.
-    const again = await mountPane($, on, [S('own')], withPrefixes({ agents: [two[0]] }))
-    expect({ shown, afterReload: await ownCount(again.ui) }).toEqual({ shown: '1/2', afterReload: null })
+  // AC-60: a new ticket is not named as removed
+  test('The orchestrator leaves tickets out of a report and the answer names each removed ticket, done ones separately (new JK-5 not named as removed)', async ($, on) => {
+    const p = await leave($, on)
+    expect({ removedNamed: p.done.includes('AB-1'), newInRemoved: [...p.open, ...p.done].includes('JK-5') }).toEqual({ removedNamed: true, newInRemoved: false })
   })
-  test('Owner sees ticket progress disappear within one redraw once fewer than two tickets remain (tickets off)', async ($, on) => {
-    const { ui, clock } = await mountPane($, on, [S('own')], withPrefixes({ agents: THREE() }))
-    const shown = await ownCount(ui)
-    await $.command.run({ command: 'bridge', args: 'tickets off' } as never)
-    await redraw(clock, ui)
-    expect({ shown, after: await ownCount(ui) }).toEqual({ shown: '0/3', after: null })
+  // AC-60 (I-1: the stated number counts every removed ticket, done ones included)
+  test('The orchestrator leaves tickets out of a report and the answer names each removed ticket, done ones separately (removed count)', async ($, on) => {
+    expect((await leave($, on)).removedCount).toBe('3')
+  })
+  // AC-61
+  test('The orchestrator sends an empty report and the answer says how many tickets it cleared', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(F25().tickets)
+    expect(partsOf((await r.report([])).text).first).toBe('Accepted: 0 tickets; cleared 25 tickets.')
+  })
+  // AC-61 + AC-60 (I-2): the clearing answer names all 25 removed ids
+  test('The orchestrator sends an empty report and the answer says how many tickets it cleared (names all 25 removed ids)', async ($, on) => {
+    const r = await rig($, on)
+    const { tickets } = F25()
+    await r.report(tickets)
+    const p = partsOf((await r.report([])).text)
+    expect({ named: sorted([...p.open, ...p.done]), removedCount: p.removedCount }).toEqual({ named: sorted(tickets.map(t => t.id)), removedCount: '25' })
+  })
+  // AC-61 + AC-60 (I-2): the 8 done ids sit in a separate done part
+  test('The orchestrator sends an empty report and the answer says how many tickets it cleared (the 8 done ids in a separate done part)', async ($, on) => {
+    const r = await rig($, on)
+    const { tickets } = F25()
+    await r.report(tickets)
+    const p = partsOf((await r.report([])).text)
+    const doneIds = tickets.filter(t => t.state === 'done').map(t => t.id)
+    expect({ doneIds: doneIds.length, inDonePart: sorted(p.done), doneIdsInOpenPart: p.open.filter(id => doneIds.includes(id)) }).toEqual({ doneIds: 8, inDonePart: sorted(doneIds), doneIdsInOpenPart: [] })
+  })
+  // AC-61
+  test('The orchestrator sends an empty report and the answer says how many tickets it cleared (three tickets)', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(THREE)
+    expect(partsOf((await r.report([])).text).first).toBe('Accepted: 0 tickets; cleared 3 tickets.')
+  })
+  const IDS62 = ['ZZ-9', 'AB-1', 'MM-5']
+  const LIST62 = [tk('ZZ-9', 'planned'), tk('AB-1', 'done', F_workerRef({ id: 'w-a' })), tk('MM-5', 'in progress', F_workerRef({ id: 'w-m' }))]
+  // AC-62
+  test('The orchestrator asks for a read-back and gets the stored list unchanged', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(LIST62, 'EP-7')
+    const a = (await r.readback()).text
+    const seg = (id: string) => segmentOf(a, id, [...IDS62, 'EP-7'])
+    expect({ zz: /planned/i.test(seg('ZZ-9')), ab: /done/i.test(seg('AB-1')) && seg('AB-1').includes('w-a'), mm: IN_PROGRESS.test(seg('MM-5')) && seg('MM-5').includes('w-m') })
+      .toEqual({ zz: true, ab: true, mm: true })
+  })
+  // AC-62: the locked read-back format (L-2)
+  test('The orchestrator asks for a read-back and gets the stored list unchanged (locked format)', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(LIST62, 'EP-7')
+    expect((await r.readback()).text).toBe('Stored list: 3 tickets, epic EP-7.\nZZ-9 planned\nAB-1 done, worker w-a\nMM-5 in_progress, worker w-m')
+  })
+  // AC-62
+  test('The orchestrator asks for a read-back and gets the stored list unchanged (report order and epic)', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(LIST62, 'EP-7')
+    const a = (await r.readback()).text
+    const at = IDS62.map(id => a.search(new RegExp(`(?<![\\w-])${esc(id)}(?![\\w-])`)))
+    expect({ ordered: at.every((x, i) => x >= 0 && (i === 0 || x > at[i - 1]!)), epic: has(a, 'EP-7') }).toEqual({ ordered: true, epic: true })
+  })
+  // AC-62
+  test('The orchestrator asks for a read-back and gets the stored list unchanged (nothing changes by reading)', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(LIST62, 'EP-7')
+    const first = (await r.readback()).text
+    expect({ listed: IDS62.every(id => has(first, id)), same: (await r.readback()).text === first }).toEqual({ listed: true, same: true })
+  })
+  // AC-62
+  test('The orchestrator asks for a read-back and gets the stored list unchanged (empty list says so)', async ($, on) => {
+    const r = await rig($, on)
+    expect(emptyReadback((await r.readback()).text, IDS62)).toEqual(EMPTY_OK)
+  })
+  // AC-62: a worker's request is refused as in AC-04
+  test('The orchestrator asks for a read-back and gets the stored list unchanged (a worker\'s read-back is refused)', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(LIST62)
+    const refused = await F_readback($, r.world, 'a1')
+    expect({ refused: refused.refused, text: refused.text }).toEqual({ refused: true, text: WORKER_REFUSAL })
+  })
+
+  /** AC-63 (R-7): the store already holds the report from `ageMs` before the session starts; the first draw is read with no clock move. */
+  const returned = ($: any, on: On, ageMs: number, tickets: readonly Tk[] = THREE) => rig($, on, { world: withRecord('own', tickets, TUE_10 - ageMs) })
+  /** Positive control, read last: the tool takes a report, so the checks before it ran against a live tool. */
+  const toolLive = async (r: Rig) => /^Accepted: \d+ tickets?\./.test((await r.report(THREE)).text)
+  const DAY4 = [tk('ZZ-9', 'planned'), tk('YY-8', 'done')]
+  // AC-63
+  test('A ticket list left more than 7 days without a report is gone when the session comes back', async ($, on) => {
+    const back = await returned($, on, 7 * DAY + MIN)
+    expect({ count: countIn(await back.title()), bar: await hasBar(back.ui), live: await toolLive(back) }).toEqual({ count: null, bar: false, live: true })
+  })
+  // AC-63
+  test('A ticket list left more than 7 days without a report is gone when the session comes back (read-back)', async ($, on) => {
+    const back = await returned($, on, 7 * DAY + MIN)
+    expect({ ...emptyReadback((await back.readback()).text, THREE_IDS), live: await toolLive(back) }).toEqual({ ...EMPTY_OK, live: true })
+  })
+  // AC-63 (I-5): an accepted report renews the period. The list is 2 s from its 7th day; a report accepted now renews it, so it survives the next redraw (5 s).
+  test('A ticket list left more than 7 days without a report is gone when the session comes back (renewal: progress still shows)', async ($, on) => {
+    const back = await returned($, on, 7 * DAY - 2000)
+    const accepted = (await back.report(DAY4)).text.split('\n')[0]
+    await back.redraw()
+    expect({ accepted, count: countIn(await back.title()), bar: await hasBar(back.ui) }).toEqual({ accepted: 'Accepted: 2 tickets.', count: '1/2', bar: true })
+  })
+  // AC-63 (I-5)
+  test('A ticket list left more than 7 days without a report is gone when the session comes back (renewal: read-back lists the new tickets)', async ($, on) => {
+    const back = await returned($, on, 7 * DAY - 2000)
+    await back.report(DAY4)
+    await back.redraw()
+    const a = (await back.readback()).text
+    expect({ renewed: ['ZZ-9', 'YY-8'].map(id => has(a, id)), old: THREE_IDS.some(id => has(a, id)) }).toEqual({ renewed: [true, true], old: false })
+  })
+  // AC-63 (I-4): the age runs from the report, not from the session start: a list 4 days and 1 minute old is kept
+  test('A ticket list left more than 7 days without a report is gone when the session comes back (age runs from the report, not the session start)', async ($, on) => {
+    const back = await returned($, on, 4 * DAY + MIN)
+    expect({ count: countIn(await back.title()), bar: await hasBar(back.ui) }).toEqual({ count: '1/3', bar: true })
+  })
+  // AC-63 open-session case (closes validation Known Gap 4): the pane stays open while the list passes its 7th day. Substitute for a 7-day clock move, which the harness cannot make with the pane alive: the list is 2 s short of 7 days when the session starts, and one redraw (5 s) carries it over.
+  test('A ticket list left more than 7 days without a report is gone when the session comes back (a pane left open while the list expires)', async ($, on) => {
+    const open = await returned($, on, 7 * DAY - 2000)
+    const before = countIn(await open.title())
+    await open.redraw()
+    expect({ before, after: countIn(await open.title()), bar: await hasBar(open.ui) }).toEqual({ before: '1/3', after: null, bar: false })
+  })
+  // AC-63 open-session case
+  test('A ticket list left more than 7 days without a report is gone when the session comes back (a pane left open: the read-back is empty)', async ($, on) => {
+    const open = await returned($, on, 7 * DAY - 2000)
+    const before = has((await open.readback()).text, 'AB-1')
+    await open.redraw()
+    expect({ before, ...emptyReadback((await open.readback()).text, THREE_IDS) }).toEqual({ before: true, ...EMPTY_OK })
+  })
+  // AC-63
+  test('A ticket list left more than 7 days without a report is gone when the session comes back (progress returns with a new report)', async ($, on) => {
+    const back = await returned($, on, 7 * DAY + MIN)
+    const before = countIn(await back.title())
+    await back.report(THREE)
+    await back.redraw()
+    expect({ before, after: countIn(await back.title()) }).toEqual({ before: null, after: '1/3' })
+  })
+  // AC-04
+  test('A worker calls the ticket tool and the call is refused', async ($, on) => {
+    const r = await rig($, on)
+    await r.report([tk('AB-1', 'done'), tk('CD-2', 'planned')])
+    const a = await F_report($, r.world, [tk('GH-4', 'planned'), tk('JK-5', 'planned'), tk('LM-6', 'done')], undefined, 'a1')
+    expect({ refused: a.refused, text: a.text }).toEqual({ refused: true, text: WORKER_REFUSAL })
+  })
+  // AC-04
+  test('A worker calls the ticket tool and the call is refused (a teammate in the session)', async ($, on) => {
+    const r = await rig($, on)
+    await r.report([tk('AB-1', 'done'), tk('CD-2', 'planned')])
+    const a = await F_report($, r.world, [tk('GH-4', 'planned')], undefined, 'teammate-1@team')
+    expect({ refused: a.refused, text: a.text }).toEqual({ refused: true, text: WORKER_REFUSAL })
+  })
+  // AC-04
+  test('A worker calls the ticket tool and the call is refused (the list does not change)', async ($, on) => {
+    const r = await rig($, on)
+    await r.report([tk('AB-1', 'done'), tk('CD-2', 'planned')])
+    await F_report($, r.world, [tk('GH-4', 'planned'), tk('JK-5', 'planned'), tk('LM-6', 'done')], undefined, 'a1')
+    const back = (await r.readback()).text
+    expect({ kept: has(back, 'AB-1') && has(back, 'CD-2'), others: ['GH-4', 'JK-5', 'LM-6'].some(id => has(back, id)) }).toEqual({ kept: true, others: false })
+  })
+
+  /** A refusal case: the answer is the locked refusal text (L-2), and the list of the accepted first report is unchanged. */
+  const refuses = (label: string, send: (r: Rig) => Promise<Answer>, core: string) =>
+    // AC-05
+    test(`The orchestrator sends a malformed ticket and the report is refused naming the problem (${label})`, async ($, on) => {
+      const r = await rig($, on)
+      await r.report([tk('AB-1', 'done'), tk('CD-2', 'planned')])
+      const a = await send(r)
+      const back = (await r.readback()).text
+      expect({ refused: a.refused, text: a.text, unchanged: has(back, 'AB-1') && has(back, 'CD-2') && !has(back, 'QX-9') }).toEqual({ refused: true, text: refusal(core), unchanged: true })
+    })
+  const raw = (r: Rig, tickets: unknown[], epic?: unknown) => F_reportRaw(r.$, r.world, tickets, epic)
+  refuses('missing id', r => raw(r, [{ state: 'planned' }]), 'ticket 1 has no id.')
+  refuses('empty id', r => raw(r, [{ id: '', state: 'planned' }]), 'ticket 1 has an empty id.')
+  refuses('id of only spaces', r => raw(r, [{ id: '   ', state: 'planned' }]), 'ticket 1 has an empty id.')
+  refuses('25-character id', r => raw(r, [{ id: 'A'.repeat(23) + '-1', state: 'planned' }]), 'ticket 1\'s id is longer than 24 characters.')
+  refuses('25-character epic', r => raw(r, [wire(tk('QX-9', 'planned'))], 'E'.repeat(25)), 'the epic is longer than 24 characters.')
+  refuses('epic of only spaces', r => raw(r, [wire(tk('QX-9', 'planned'))], '   '), 'the epic is empty.')
+  refuses('worker of only spaces', r => raw(r, [{ id: 'QX-9', state: 'planned', worker: '   ' }]), 'ticket QX-9 has an empty worker.')
+  refuses('state blocked', r => raw(r, [{ id: 'QX-9', state: 'blocked' }]), `ticket QX-9 has state "blocked"; ${STATE_HELP}`)
+  refuses('no state', r => raw(r, [{ id: 'QX-9' }]), `ticket QX-9 has no state; ${STATE_HELP}`)
+  refuses('an entry that is not an object', r => raw(r, ['QX-9']), 'ticket 1 is not an object.')
+  refuses('the list is missing', r => F_call(r.$, r.world, { epic: 'EP-1' }), 'all_tickets is missing; send every ticket, or an empty list to clear the list.')
+  refuses('the list is not a list', r => F_call(r.$, r.world, { all_tickets: 'QX-9' }), 'all_tickets must be a list.')
+  // AC-05: two bad tickets, the first problem is named (the first ticket's state, not the second's empty id)
+  test('The orchestrator sends a malformed ticket and the report is refused naming the problem (two problems, the first is named)', async ($, on) => {
+    const r = await rig($, on)
+    const a = await raw(r, [{ id: 'QX-9', state: 'blocked' }, { id: '', state: 'planned' }])
+    expect({ refused: a.refused, text: a.text }).toEqual({ refused: true, text: refusal(`ticket QX-9 has state "blocked"; ${STATE_HELP}`) })
+  })
+  // AC-05: leaving out the epic or a ticket's worker is allowed
+  test('The orchestrator sends a malformed ticket and the report is refused naming the problem (no epic and no worker is accepted)', async ($, on) => {
+    const r = await rig($, on)
+    const a = await raw(r, [{ id: 'AB-1', state: 'planned' }])
+    expect({ refused: a.refused, text: a.text }).toEqual({ refused: false, text: 'Accepted: 1 ticket.' })
+  })
+  // AC-05: the 24-character boundary
+  test('The orchestrator sends a malformed ticket and the report is refused naming the problem (24-character id and epic are accepted)', async ($, on) => {
+    const r = await rig($, on)
+    const a = await raw(r, [{ id: 'A'.repeat(22) + '-1', state: 'planned' }], 'E'.repeat(24))
+    expect({ refused: a.refused, text: a.text }).toEqual({ refused: false, text: 'Accepted: 1 ticket.' })
+  })
+  // AC-05: spaces around an id are removed
+  test('The orchestrator sends a malformed ticket and the report is refused naming the problem (spaces around an id are trimmed)', async ($, on) => {
+    const r = await rig($, on)
+    await raw(r, [{ id: ' AB-1 ', state: 'planned' }, { id: 'CD-2', state: 'planned' }])
+    expect((await r.report([tk('AB-1', 'planned'), tk('CD-2', 'planned')])).text).toBe('Accepted: 2 tickets.')
+  })
+  // AC-06
+  test('The orchestrator lists the same ticket twice and the report is refused naming it', async ($, on) => {
+    const r = await rig($, on)
+    await r.report([tk('AB-1', 'done')])
+    const a = await r.report([tk('AB-1', 'planned'), tk('CD-2', 'planned'), tk('AB-1', 'done')])
+    const back = (await r.readback()).text
+    expect({ refused: a.refused, text: a.text, unchanged: has(back, 'AB-1') && !has(back, 'CD-2') }).toEqual({ refused: true, text: refusal('ticket AB-1 is listed twice.'), unchanged: true })
+  })
+  // AC-06
+  test('The orchestrator lists the same ticket twice and the report is refused naming it (equal after trimming)', async ($, on) => {
+    const r = await rig($, on)
+    await r.report([tk('CD-2', 'done')])
+    const a = await raw(r, [{ id: 'AB-1', state: 'planned' }, { id: ' AB-1', state: 'planned' }])
+    expect({ refused: a.refused, text: a.text }).toEqual({ refused: true, text: refusal('ticket AB-1 is listed twice.') })
+  })
+  // AC-06
+  test('The orchestrator lists the same ticket twice and the report is refused naming it (letter case makes two tickets)', async ($, on) => {
+    const r = await rig($, on)
+    const a = await r.report([tk('ab-1', 'planned'), tk('AB-1', 'planned')])
+    expect({ refused: a.refused, text: a.text }).toEqual({ refused: false, text: 'Accepted: 2 tickets.' })
+  })
+  const hundreds = (n: number) => Array.from({ length: n }, (_, i) => tk(uid(i), 'planned'))
+  // AC-07
+  test('The orchestrator sends more than 200 tickets and the report is refused stating the limit', async ($, on) => {
+    const r = await rig($, on)
+    const a = await r.report(hundreds(201))
+    expect({ refused: a.refused, text: a.text }).toEqual({ refused: true, text: refusal('201 tickets; a report holds at most 200.') })
+  })
+  // AC-07
+  test('The orchestrator sends more than 200 tickets and the report is refused stating the limit (200 are accepted)', async ($, on) => {
+    const r = await rig($, on)
+    const a = await r.report(hundreds(200))
+    expect({ refused: a.refused, text: a.text }).toEqual({ refused: false, text: 'Accepted: 200 tickets.' })
+  })
+  // AC-07
+  test('The orchestrator sends more than 200 tickets and the report is refused stating the limit (the list stays)', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(hundreds(200))
+    await r.report(hundreds(201))
+    const back = (await r.readback()).text
+    expect({ first: has(back, uid(0)), last: has(back, uid(199)), over: has(back, uid(200)) }).toEqual({ first: true, last: true, over: false })
+  })
+  // AC-08
+  test('An accepted report becomes the whole ticket list', async ($, on) => {
+    const r = await rig($, on)
+    await r.report([tk('AB-1', 'done', F_workerRef({ id: 'w-a' })), tk('CD-2', 'planned')], 'EP-1')
+    await r.report([tk('ZZ-9', 'in progress', F_workerRef({ id: 'w-z' })), tk('CD-2', 'done')])
+    const a = (await r.readback()).text
+    const seg = (id: string) => segmentOf(a, id, ['ZZ-9', 'CD-2'])
+    expect({
+      order: a.search(/ZZ-9/) >= 0 && a.search(/ZZ-9/) < a.search(/CD-2/),
+      zz: IN_PROGRESS.test(seg('ZZ-9')) && seg('ZZ-9').includes('w-z'), cd: /done/i.test(seg('CD-2')),
+    }).toEqual({ order: true, zz: true, cd: true })
+  })
+  // AC-08
+  test('An accepted report becomes the whole ticket list (nothing earlier remains)', async ($, on) => {
+    const r = await rig($, on)
+    await r.report([tk('AB-1', 'done', F_workerRef({ id: 'w-a' })), tk('CD-2', 'planned')], 'EP-1')
+    await r.report([tk('ZZ-9', 'in progress', F_workerRef({ id: 'w-z' })), tk('CD-2', 'done')])
+    const a = (await r.readback()).text
+    expect({ listed: has(a, 'ZZ-9'), oldTicket: has(a, 'AB-1'), oldEpic: has(a, 'EP-1') }).toEqual({ listed: true, oldTicket: false, oldEpic: false })
+  })
+  // AC-09
+  test('An accepted empty report empties the ticket list', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(THREE)
+    const before = has((await r.readback()).text, 'AB-1')
+    await r.report([])
+    expect({ before, ...emptyReadback((await r.readback()).text, THREE_IDS) }).toEqual({ before: true, ...EMPTY_OK })
   })
 })
 
-// ================================================================ 2. Ticket status (AC-12 to AC-15)
-describe('2. ticket status', () => {
-  test('Owner sees a ticket marked Needs you when any of its workers needs them', () => {
-    // The worker that needs them started first; the newest worker is Done, the middle one Working: only "any worker needs you wins" gives red.
-    const v = view([
-      kid('ask WS-11 old', 'needs-you', 0), kid('scan WS-11 mid', 'working', 1), kid('scan WS-11 new', 'done', 2),
-      tk('WS-12', 'working', 3),
-    ])
-    expect(dotHue(rowFor(v, 'WS-11')?.text)).toBe('red')
+// ================================================================ Unit rules (R-1, R-2, R-8): the pure ticket model and bar rules
+// Imported from hooks/core/progress.ts (plan L-7) and drawn through hooks/core/view.ts and layout.ts. The Bridge runner cannot import a module
+// that does not exist, so these checks reach the new functions through a namespace import of the two modules that already exist; hooks/core/report.ts
+// (L-2) is exercised through the tool entry (sections 1 and 6, the edge cases and NH-11/NH-20).
+const pg = progressNs as any
+type Color = 'done' | 'in_progress' | 'attention' | 'planned'
+const ck = (id: string, status: ChildStatus, startMin: number, parentId?: string, label = id): Child =>
+  ({ id, label, status, since: NOW - 2 * MIN, startedAt: T0 + startMin * MIN, ...(parentId !== undefined ? { parentId } : {}) })
+const rpt = (tickets: readonly Tk[], epic?: string) => ({ v: 1, at: NOW, tickets: tickets.map(wire), ...(epic !== undefined ? { epic } : {}) })
+const progressOf = (tickets: readonly Tk[], children: readonly Child[] = [], epic?: string) => pg.ticketProgressOf(rpt(tickets, epic), children)
+const colorsOf = (list: readonly Color[]) => list.map(color => ({ color }))
+const runsOf = (list: readonly Color[], n: number): Array<[string, number]> => pg.barRunsOf(colorsOf(list), n).map((r: { color: string; length: number }) => [r.color, r.length])
+const repeatColor = (color: Color, n: number): Color[] => rep(color, n)
+/** The title line of the own card drawn by the view (pure): its bar cells, count and the title segment. */
+const lineOf = (tickets: readonly Tk[], o: { epic?: string; width: number; title?: string; children?: Child[] }) => {
+  const v = view(o.children ?? [], { width: o.width, own: { title: o.title ?? TIT }, report: rpt(tickets, o.epic) })
+  const segs = ownOf(v).lines[1] ?? []
+  const text = plain(segs)
+  const bar = segs.filter(s => s.kind === 'text' && s.role === 'bar').map(s => (s.kind === 'text' ? s.text : '')).join('')
+  const title = segs.find(s => s.kind === 'text' && s.role === 'title')
+  return { text, width: cellWidth(text), cells: [...bar].length, count: countIn(text), title: title && title.kind === 'text' ? title.text.trim() : '' }
+}
+const THREE_T = [tk('AB-1', 'done'), tk('CD-2', 'planned'), tk('EF-3', 'planned')]
+
+describe('unit rules: the ticket model', () => {
+  // R-1 (OA-2): a report names a worker by its listed id only
+  // AC-34
+  test('A ticket\'s worker and its rolled-up subagents get no child rows of their own (unit: a report names a worker by its id)', () => {
+    expect(pg.workerOf('w-a', [ck('w-b', 'working', 1), ck('w-a', 'working', 0)])?.id).toBe('w-a')
   })
-  test('Owner sees a ticket marked Working while any worker runs and none needs them', () => {
-    const v = view([
-      kid('scan WS-11 old', 'failed', 0), kid('scan WS-11 new', 'working', 1),
-      kid('scan WS-12 a', 'working', 2), kid('scan WS-12 b', 'done', 3),
-      kid('scan WS-13 a', 'working', 4),
-    ])
-    expect(['WS-11', 'WS-12', 'WS-13'].map(id => dotHue(rowFor(v, id)?.text))).toEqual(['yellow', 'yellow', 'yellow'])
+  // AC-38
+  test('A ticket whose named worker is not listed shows its reported state without age or attention (unit: a description or a name is not a worker id)', () => {
+    const listed = [{ ...ck('w-a', 'failed', 0, undefined, 'fix AB-1 alpha'), name: 'alpha-runner' } as Child]
+    expect([pg.workerOf('fix AB-1 alpha', listed), pg.workerOf('alpha-runner', listed)]).toEqual([undefined, undefined])
   })
-  test('Owner sees a ticket marked Working while any worker runs and none needs them (raw pending and waiting)', async ($, on) => {
-    // The host's raw statuses `pending` and `waiting` read as Working, so each ticket (older run Failed or Done) is Working: two ticket rows, two yellow dots.
-    const agents = [
-      H_AGENT('a1', 'failed', 'scan WS-11 old', 0), H_AGENT('a2', 'pending', 'scan WS-11 new', 1),
-      H_AGENT('a3', 'completed', 'scan WS-12 old', 2), H_AGENT('a4', 'waiting', 'scan WS-12 new', 3),
+  // Edge: named worker matches several listed workers (the host lists one id twice)
+  test('Edge: named worker matches several listed workers; the one started last wins (unit)', () => {
+    const twice = [ck('w-a', 'working', 1, undefined, 'older'), ck('w-a', 'failed', 5, undefined, 'newer')]
+    expect(pg.workerOf('w-a', twice)?.label).toBe('newer')
+  })
+  // Edge: a tie goes to the one listed later
+  test('Edge: named worker matches several listed workers; a tie goes to the later-listed one (unit)', () => {
+    const tie = [ck('w-a', 'working', 3, undefined, 'first listed'), ck('w-a', 'failed', 3, undefined, 'second listed')]
+    expect(pg.workerOf('w-a', tie)?.label).toBe('second listed')
+  })
+  // R-2: roll-ups follow parent links to any depth
+  const chain = [ck('w-a', 'working', 0), ck('w-sub', 'working', 1, 'w-a'), ck('w-gc', 'failed', 2, 'w-sub')]
+  // AC-34
+  test('A ticket\'s worker and its rolled-up subagents get no child rows of their own (unit: a grandchild is claimed and none is loose)', () => {
+    const p = progressOf([tk('AB-1', 'in progress', 'w-a')], chain)
+    expect({ claimed: p?.tickets[0]?.claimed.map((c: Child) => c.id).sort(), loose: p?.loose.map((c: Child) => c.id) }).toEqual({ claimed: ['w-a', 'w-gc', 'w-sub'], loose: [] })
+  })
+  // Terms "Attention" (rolled-up subagent), AC-18
+  test('Each bar segment takes its ticket\'s color (unit: a failed grandchild puts the ticket in attention, word Failed)', () => {
+    const t = progressOf([tk('AB-1', 'in progress', 'w-a')], chain)?.tickets[0]
+    expect({ color: t?.color, word: t?.word }).toEqual({ color: 'attention', word: 'Failed' })
+  })
+  // AC-32
+  test('A ticket row shows id, colored dot, state word and its worker\'s age (unit: a rolled-up subagent that needs you gives Needs you over Failed)', () => {
+    const kids = [ck('w-top', 'failed', 0), ck('w-sub', 'needs-you', 1, 'w-top')]
+    expect(progressOf([tk('TOP-6', 'in progress', 'w-top')], kids)?.tickets[0]?.word).toBe('Needs you')
+  })
+  // AC-35
+  test('Workers that belong to no ticket keep their child rows after the ticket rows (unit: a child whose parent is not listed is loose)', () => {
+    const kids = [ck('w-a', 'working', 0), ck('c-orphan', 'working', 1, 'w-gone'), ck('c-free', 'working', 2)]
+    expect(progressOf([tk('AB-1', 'in progress', 'w-a')], kids)?.loose.map((c: Child) => c.id)).toEqual(['c-orphan', 'c-free'])
+  })
+  // Edge: one worker named by two tickets
+  test('Edge: one worker named by two tickets; both claim it and nothing is loose (unit)', () => {
+    const p = progressOf([tk('AB-1', 'in progress', 'w-a'), tk('CD-2', 'in progress', 'w-a')], [ck('w-a', 'failed', 0)])
+    expect({ colors: p?.tickets.map((t: { color: string }) => t.color), claimed: p?.tickets.map((t: { claimed: unknown[] }) => t.claimed.length), loose: p?.loose.length }).toEqual({ colors: ['attention', 'attention'], claimed: [1, 1], loose: 0 })
+  })
+  // AC-16
+  test('The count shows done tickets over all tickets, planned included (unit)', () => {
+    const p = progressOf([tk('A1-1', 'done'), tk('B2-2', 'planned'), tk('C3-3', 'in progress'), tk('D4-4', 'done'), tk('E5-5', 'planned')])
+    expect({ done: p?.done, total: p?.total }).toEqual({ done: 2, total: 5 })
+  })
+  // AC-16
+  test('The count shows done tickets over all tickets, planned included (unit: all planned)', () => {
+    const p = progressOf([tk('A1-1', 'planned'), tk('B2-2', 'planned'), tk('C3-3', 'planned'), tk('D4-4', 'planned')])
+    expect({ done: p?.done, total: p?.total }).toEqual({ done: 0, total: 4 })
+  })
+  // NH-1 / NH-4: no report or no ticket gives no progress
+  test('NH-4 An accepted report with no tickets shows no progress (unit: no report and an empty report give no ticket progress)', () => {
+    expect([pg.ticketProgressOf(null, []), pg.ticketProgressOf(rpt([]), [])]).toEqual([null, null])
+  })
+  // AC-18
+  test('Each bar segment takes its ticket\'s color (unit)', () => {
+    const p = progressOf([tk('A1-1', 'done'), tk('B2-2', 'in progress'), tk('C3-3', 'planned'), tk('D4-4', 'in progress', 'w-d')], [ck('w-d', 'failed', 0)])
+    const colors = p?.tickets.map((t: { color: Color }) => t.color)
+    expect({ colors, hues: colors?.map((c: Color) => pg.TICKET_HUE[c]) }).toEqual({ colors: ['done', 'in_progress', 'planned', 'attention'], hues: ['green', 'blue', 'gray', 'red'] })
+  })
+  // AC-18 / NH-14
+  test('NH-14 A done ticket with a Failed worker is not in attention and is green (unit)', () => {
+    const t = progressOf([tk('AB-1', 'done', 'w-a')], [ck('w-a', 'failed', 0)])?.tickets[0]
+    expect({ color: t?.color, word: t?.word }).toEqual({ color: 'done', word: 'Done' })
+  })
+  // NH-12
+  test('NH-12 A worker the person stopped (killed) does not put its ticket in attention (unit: a stopped worker is listed idle)', () => {
+    const t = progressOf([tk('AB-1', 'in progress', 'w-a')], [ck('w-a', 'idle', 0)])?.tickets[0]
+    expect({ color: t?.color, word: t?.word }).toEqual({ color: 'in_progress', word: 'In progress' })
+  })
+  // AC-38 / NH-13
+  test('NH-13 A named worker that is not listed is never in attention (unit)', () => {
+    const t = progressOf([tk('AB-1', 'in progress', 'w-gone')], [ck('w-other', 'failed', 0)])?.tickets[0]
+    expect({ color: t?.color, word: t?.word, worker: t?.worker }).toEqual({ color: 'in_progress', word: 'In progress', worker: undefined })
+  })
+  // AC-33
+  test('Ticket rows list attention first, then in progress, then the rest in report order (unit)', () => {
+    const kids = [ck('w-d', 'failed', 0), ck('w-f', 'failed', 1)]
+    const p = progressOf([tk('A1-1', 'done'), tk('B1-2', 'planned'), tk('C1-3', 'in progress'), tk('D1-4', 'in progress', 'w-d'), tk('E1-5', 'in progress'), tk('F1-6', 'in progress', 'w-f')], kids)
+    expect(p?.rows.map((t: { id: string }) => t.id)).toEqual(['D1-4', 'F1-6', 'C1-3', 'E1-5', 'A1-1', 'B1-2'])
+  })
+})
+
+describe('unit rules: the bar', () => {
+  const FIVE_COLORS: Color[] = ['done', 'planned', 'in_progress', 'done', 'planned']
+  // AC-17
+  test('Each ticket gets its own bar segment when tickets fit (unit: five tickets)', () => {
+    expect(runsOf(FIVE_COLORS, MAXBAR)).toEqual([['done', 3], ['planned', 3], ['in_progress', 2], ['done', 2], ['planned', 2]])
+  })
+  // AC-17
+  test('Each ticket gets its own bar segment when tickets fit (unit: one ticket, then as many tickets as cells)', () => {
+    expect({ one: runsOf(['planned'], MAXBAR), twelve: runsOf(rep<Color>('planned', MAXBAR), MAXBAR).map(r => r[1]) }).toEqual({ one: [['planned', 12]], twelve: rep(1, MAXBAR) })
+  })
+  // AC-17
+  test('Each ticket gets its own bar segment when tickets fit (unit: cell colors follow the report order)', () => {
+    expect(pg.barCellsOf(colorsOf(FIVE_COLORS), MAXBAR)).toEqual([...repeatColor('done', 3), ...repeatColor('planned', 3), ...repeatColor('in_progress', 2), ...repeatColor('done', 2), ...repeatColor('planned', 2)])
+  })
+  // AC-19: N = 10, T = 12, three of each color
+  test('Crowded tickets show one run per color ordered done, in progress, attention, planned (unit: ten cells, twelve tickets)', () => {
+    const list: Color[] = [...repeatColor('planned', 3), ...repeatColor('attention', 3), ...repeatColor('in_progress', 3), ...repeatColor('done', 3)]
+    expect(runsOf(list, 10)).toEqual([['done', 3], ['in_progress', 3], ['attention', 2], ['planned', 2]])
+  })
+  // AC-19: N = 12, T = 40
+  test('Crowded tickets show one run per color ordered done, in progress, attention, planned (unit: 39 done and one planned)', () => {
+    expect(runsOf([...repeatColor('planned', 1), ...repeatColor('done', 39)], MAXBAR)).toEqual([['done', 11], ['planned', 1]])
+  })
+  // AC-19: N = 5, T = 100
+  test('Crowded tickets show one run per color ordered done, in progress, attention, planned (unit: five cells, a hundred tickets)', () => {
+    const list: Color[] = [...repeatColor('planned', 2), ...repeatColor('in_progress', 48), ...repeatColor('attention', 2), ...repeatColor('done', 48)]
+    expect(runsOf(list, 5)).toEqual([['done', 1], ['in_progress', 2], ['attention', 1], ['planned', 1]])
+  })
+  // AC-19: T = 13 with no attention ticket
+  test('Crowded tickets show one run per color ordered done, in progress, attention, planned (unit: thirteen tickets, no attention run)', () => {
+    const runs = runsOf([...repeatColor('planned', 4), ...repeatColor('in_progress', 4), ...repeatColor('done', 5)], MAXBAR)
+    expect({ colors: runs.map(r => r[0]), total: runs.reduce((sum, r) => sum + r[1], 0) }).toEqual({ colors: ['done', 'in_progress', 'planned'], total: MAXBAR })
+  })
+  // AC-20: F-25 at N = 12
+  test('Twenty-five tickets fit a 12-cell bar in the docked pane (unit: the runs)', () => {
+    const { tickets } = F25()
+    const kids = tickets.filter(t => t.worker !== undefined).map(t => ck(t.worker!, 'failed', 0))
+    const p = progressOf(tickets, kids)
+    expect({ runs: runsOf(p?.tickets.map((t: { color: Color }) => t.color), MAXBAR), count: `${p?.done}/${p?.total}` }).toEqual({ runs: [['done', 4], ['in_progress', 3], ['attention', 1], ['planned', 4]], count: '8/25' })
+  })
+  // AC-23: the bar shrinks one cell per column once the title is at its minimum
+  test('A narrow title line shortens the title first and the bar only after the title is at its minimum (unit: bar width)', () => {
+    const m = cellWidth(pg.titleMinOf(TIT))
+    expect({ min: pg.titleMinOf(TIT), widths: [27, 26, 19, 18, 17, 13, 12, 11].map(w => pg.barWidthOf(w, 0, m, 3)) }).toEqual({ min: 'R…', widths: [12, 12, 12, 11, 10, 6, 5, 4] })
+  })
+  // AC-23: through the drawn title line
+  test('A narrow title line shortens the title first and the bar only after the title is at its minimum (unit: drawn line)', () => {
+    const scenes = []
+    for (let width = 44; width >= 12; width--) scenes.push({ width, ...lineOf(THREE_T, { width }) })
+    const atMin = (s: { title: string }) => cellWidth(s.title) === 2
+    const firstCut = scenes.find(s => s.title !== TIT)
+    const violations = [
+      ...scenes.filter(s => s.cells > 0 && s.cells < MAXBAR && !atMin(s)).map(s => `bar ${s.cells} before the title is at its minimum at ${s.width}`),
+      ...scenes.filter(s => s.title !== '' && cellWidth(s.title) < 2).map(s => `title under 2 cells at ${s.width}`),
+      ...scenes.slice(1).filter((s, i) => { const p = scenes[i]!; return atMin(s) && atMin(p) && s.cells >= 5 && p.cells >= 5 && p.cells - s.cells !== p.width - s.width }).map(s => `bar not 1 cell per column at ${s.width}`),
     ]
-    const { ui } = await mountPane($, on, [S('own')], withPrefixes({ agents }))
-    expect({ leads: await hLeads(ui), dots: await rowDotHues(ui) }).toEqual({ leads: ['WS-11', 'WS-12'], dots: ['yellow', 'yellow'] })
+    expect({ full: scenes[0]!.cells, whole: scenes[0]!.title, firstCut: firstCut ? { ellipsis: firstCut.title.endsWith('…'), cells: firstCut.cells } : null, violations })
+      .toEqual({ full: MAXBAR, whole: TIT, firstCut: { ellipsis: true, cells: MAXBAR }, violations: [] })
   })
-  test('Owner sees a finished ticket take the result of its newest run', () => {
-    const v = view([
-      kid('scan WS-11 a', 'failed', 0), kid('scan WS-11 b', 'done', 2),
-      kid('scan WS-12 a', 'done', 4), kid('scan WS-12 b', 'failed', 6),
-      kid('scan WS-13 a', 'done', 8), kid('scan WS-13 b', 'idle', 9),
-      kid('scan WS-14 a', 'done', 10), kid('scan WS-14 b', 'failed', 10),
-    ])
-    expect(['WS-11', 'WS-12', 'WS-13', 'WS-14'].map(id => dotHue(rowFor(v, id)?.text))).toEqual(['green', 'red', 'gray', 'red'])
+  // AC-25 / NH-16: N = 5 draws a 5-cell bar, N = 4 draws none
+  test('A title line with fewer than 5 bar cells shows the count only (unit: the 5-cell boundary)', () => {
+    const k = cellWidth('1/3')
+    expect({ five: pg.barWidthOf(5 + 2 + 2 + k, 0, 2, k), four: pg.barWidthOf(4 + 2 + 2 + k, 0, 2, k) }).toEqual({ five: 5, four: 4 })
   })
-  test('Owner sees a ticket\'s status follow its worker within one redraw', async ($, on) => {
-    const world = withPrefixes({ agents: [H_AGENT('a1', 'running', 'scan WS-11 alpha', 0), H_AGENT('a2', 'running', 'fix WS-12 beta', 1)] })
-    const { ui, clock } = await mountPane($, on, [S('own')], world)
-    const before = { count: await ownCount(ui), working: ((await drawnRows(ui)).find(t => leadOf(t) === 'WS-11') ?? '').includes('Working') }
-    world.agents = [H_AGENT('a1', 'completed', 'scan WS-11 alpha', 0), H_AGENT('a2', 'running', 'fix WS-12 beta', 1)]
-    await redraw(clock, ui)
-    const after = { count: await ownCount(ui), working: ((await drawnRows(ui)).find(t => leadOf(t) === 'WS-11') ?? '').includes('Working') }
-    expect({ before, after }).toEqual({ before: { count: '0/2', working: true }, after: { count: '1/2', working: false } })
+  // AC-25 / NH-16: through the drawn title line, with an epic chip so the chip can drop
+  test('A title line with fewer than 5 bar cells shows the count only (unit: drawn line, chip then title dropped)', () => {
+    const scenes = []
+    for (let width = 44; width >= 6; width--) scenes.push({ width, ...lineOf(THREE_T, { width, epic: 'AID-300', title: 'Orchestrate the release train with many parts' }) })
+    const hasChip = (s: { text: string }) => s.text.includes('◆AID-300')
+    const violations = [
+      ...scenes.filter(s => s.count && s.cells > 0 && s.cells < 5).map(s => `a ${s.cells}-cell bar at ${s.width}`),
+      ...scenes.filter(s => s.count && s.cells === 0 && s.title !== '' && cellWidth(s.title) > 2).map(s => `title above its minimum on a count-only line at ${s.width}`),
+      ...scenes.filter(s => s.count && s.title === '' && hasChip(s)).map(s => `title dropped before the chip at ${s.width}`),
+      ...scenes.filter(s => s.cells === 0 && s.count && !/1\/3\s*$/.test(s.text)).map(s => `count not at the line's end at ${s.width}`),
+    ]
+    expect({
+      five: scenes.some(s => s.cells === 5), countOnly: scenes.some(s => s.cells === 0 && s.count), chipDropped: scenes.some(s => s.count && !hasChip(s) && s.title !== ''),
+      titleDropped: scenes.some(s => s.count && s.title === ''), violations,
+    }).toEqual({ five: true, countOnly: true, chipDropped: true, titleDropped: true, violations: [] })
   })
 })
 
-// ================================================================ 3. Progress bar and count (AC-16 to AC-26)
+describe('unit rules: the group chip', () => {
+  const chipOf = (ids: readonly string[], epic?: string) => pg.groupChipOf({ tickets: ids.map(id => ({ id, state: 'planned' })), ...(epic !== undefined ? { epic } : {}) })
+  // AC-26
+  test('A report that names an epic shows the epic chip (unit)', () => {
+    expect(chipOf(['WS-1', 'APP-2'], 'AID-300')).toBe('◆AID-300')
+  })
+  // AC-27
+  test('Tickets sharing one letters prefix show that prefix as the chip (unit)', () => {
+    expect(chipOf(['AID-12', 'AID-40'])).toBe('AID')
+  })
+  // AC-27
+  test('Tickets sharing one letters prefix show that prefix as the chip (unit: one ticket)', () => {
+    expect(chipOf(['AID-1'])).toBe('AID')
+  })
+  // AC-27
+  test('Tickets sharing one letters prefix show that prefix as the chip (unit: letter case differs, no chip)', () => {
+    expect(chipOf(['aid-3', 'AID-4'])).toBe(null)
+  })
+  const none = (label: string, ids: string[]) =>
+    // AC-28
+    test(`Tickets without one shared prefix show no group chip (unit: ${label})`, () => {
+      expect(chipOf(ids)).toBe(null)
+    })
+  none('two trackers', ['WS-1', 'APP-2'])
+  none('a misshaped id', ['WS-1', 'WS-2a'])
+  none('an id of digits', ['WS-1', '123'])
+  none('underscores', ['WS_1', 'WS_2'])
+})
+
+// ================================================================ 2. When ticket progress appears
+describe('2. when ticket progress appears', () => {
+  // AC-10
+  test('The orchestrator reports tickets and the own card shows ticket progress within 5 seconds', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(THREE)
+    await r.redraw()
+    expect({ count: countIn(await r.title()), bar: await hasBar(r.ui) }).toEqual({ count: '1/3', bar: true })
+  })
+  // AC-10
+  test('The orchestrator reports tickets and the own card shows ticket progress within 5 seconds (rows)', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(THREE)
+    await r.redraw()
+    const rows = await drawnRows(r.ui)
+    expect(['AB-1', 'CD-2', 'EF-3'].map(id => rows.filter(t => has(t, id)).length)).toEqual([1, 1, 1])
+  })
+  const withBranch = (): Sess[] => [own({ branch: 'WS-12-fix' })]
+  const sixWorld = () => withPrefixes({ agents: SIX() })
+  // AC-11
+  test('A session with no report shows no ticket progress and its usual chip and child rows', async ($, on) => {
+    const r = await rig($, on, { world: sixWorld(), sessions: withBranch() })
+    const line = await r.title()
+    expect({ bar: await hasBar(r.ui), count: countIn(line), chip: /WS-12/.test(line) }).toEqual({ bar: false, count: null, chip: true })
+  })
+  // AC-11
+  test('A session with no report shows no ticket progress and its usual chip and child rows (child rows)', async ($, on) => {
+    const r = await rig($, on, { world: sixWorld(), sessions: withBranch() })
+    expect({ rows: (await drawnRows(r.ui)).map(spinnerless), more: await moreLine(r.ui) }).toEqual({ rows: BASE_ROWS, more: SIX_WORKER_MORE })
+  })
+  // AC-12
+  test('The ticket list becomes empty and the own card returns to its usual chip and child rows within 5 seconds', async ($, on) => {
+    const r = await rig($, on, { world: sixWorld(), sessions: withBranch() })
+    await r.report(THREE)
+    await r.redraw()
+    const shown = countIn(await r.title())
+    await r.report([])
+    await r.redraw()
+    const line = await r.title()
+    expect({ shown, bar: await hasBar(r.ui), count: countIn(line), chip: /WS-12/.test(line), rows: (await drawnRows(r.ui)).map(spinnerless) })
+      .toEqual({ shown: '1/3', bar: false, count: null, chip: true, rows: BASE_ROWS })
+  })
+  // AC-13
+  test('Workers named after tickets never create ticket progress without a report', async ($, on) => {
+    const agents = [H_AGENT('a1', 'running', 'fix WS-11', 0), H_AGENT('a2', 'running', 'WS-12 build', 1), H_AGENT('a3', 'running', 'port APP-3', 2), H_AGENT('a4', 'running', 'scan WS-14', 3)]
+    const r = await rig($, on, { world: withPrefixes({ agents }) })
+    expect({ bar: await hasBar(r.ui), count: countIn(await r.title()) }).toEqual({ bar: false, count: null })
+  })
+  // AC-13
+  test('Workers named after tickets never create ticket progress without a report (four child rows as before)', async ($, on) => {
+    const agents = [H_AGENT('a1', 'running', 'fix WS-11', 0), H_AGENT('a2', 'running', 'WS-12 build', 1), H_AGENT('a3', 'running', 'port APP-3', 2), H_AGENT('a4', 'running', 'scan WS-14', 3)]
+    const r = await rig($, on, { world: withPrefixes({ agents }) })
+    const rows = await drawnRows(r.ui)
+    expect({ count: rows.length, names: ['fix WS-11', 'WS-12 build', 'port APP-3', 'scan WS-14'].map(n => rows.some(t => t.includes(n))) }).toEqual({ count: 4, names: [true, true, true, true] })
+  })
+  const progressShows = async (r: Rig) => {
+    await r.report(THREE)
+    await r.redraw()
+    const rows = await drawnRows(r.ui)
+    return { count: countIn(await r.title()), bar: await hasBar(r.ui), rows: ['AB-1', 'CD-2', 'EF-3'].every(id => rows.some(t => has(t, id))) }
+  }
+  // AC-14
+  test('Ticket progress appears whatever the ticket prefixes setting holds (prefixes off)', async ($, on) => {
+    expect(await progressShows(await rig($, on))).toEqual({ count: '1/3', bar: true, rows: true })
+  })
+  // AC-14
+  test('Ticket progress appears whatever the ticket prefixes setting holds (prefixes set)', async ($, on) => {
+    expect(await progressShows(await rig($, on, { world: withPrefixes() }))).toEqual({ count: '1/3', bar: true, rows: true })
+  })
+  // AC-14
+  test('Ticket progress appears whatever the ticket prefixes setting holds (prefixes that match no id)', async ($, on) => {
+    expect(await progressShows(await rig($, on, { world: mk({ store: new Map<string, unknown>([['setting:tickets', ['ZZ-']]]) }) }))).toEqual({ count: '1/3', bar: true, rows: true })
+  })
+})
+
+// ================================================================ 3. Progress bar and count
 describe('3. progress bar and count', () => {
-  const three = () => [tk('WS-11', 'working', 0), tk('WS-12', 'done', 1), tk('WS-13', 'failed', 2)]
-  test('Owner reads the bar at the end of the own title line, with the count after it', () => {
-    // No chip on this card: the title line is exactly title, spacer, bar cells, one space, count (R-19).
-    const line = ownOf(view(three())).lines[1]!
-    const last = line[line.length - 1]
-    const glue = line[line.length - 2]
+  /** Mount with one report shown after a redraw. */
+  const shown = async ($: any, on: On, tickets: readonly Tk[], o: { epic?: string; agents?: unknown[]; cols?: number; world?: World; sessions?: Sess[] } = {}) => {
+    const r = await rig($, on, { world: o.world ?? mk({ agents: o.agents ?? [] }), cols: o.cols ?? 44, sessions: o.sessions ?? [own()] })
+    await r.report(tickets, o.epic)
+    await r.redraw()
+    return r
+  }
+  // AC-15
+  test('The own card\'s title line shows chip, title, bar and count in that order with status at the first line\'s end', async ($, on) => {
+    const r = await shown($, on, [tk('AID-1', 'done'), tk('AID-2', 'planned')])
+    expect(/^\s*AID\s+Release 42\s+[━╸]+ 1\/2\s*$/.test(await r.title())).toBe(true)
+  })
+  // AC-15
+  test('The own card\'s title line shows chip, title, bar and count in that order with status at the first line\'s end (right edge)', async ($, on) => {
+    const r = await shown($, on, [tk('AID-1', 'done'), tk('AID-2', 'planned')])
+    const lines = await r.lines()
+    expect({ shown: countIn(lines[1] ?? ''), sameWidth: cellWidth(lines[1] ?? '') === cellWidth(lines[0] ?? ''), endsWithCount: /1\/2$/.test(lines[1] ?? '') }).toEqual({ shown: '1/2', sameWidth: true, endsWithCount: true })
+  })
+  // AC-15
+  test('The own card\'s title line shows chip, title, bar and count in that order with status at the first line\'s end (first line unchanged)', async ($, on) => {
+    const r = await shown($, on, [tk('AID-1', 'done'), tk('AID-2', 'planned')])
+    expect({ shown: countIn(await r.title()), first: (await r.lines())[0] }).toEqual({ shown: '1/2', first: IDLE_STATUS_LINE })
+  })
+  // AC-16
+  test('The count shows done tickets over all tickets, planned included', async ($, on) => {
+    const r = await shown($, on, [tk('A1-1', 'done'), tk('B2-2', 'planned'), tk('C3-3', 'in progress'), tk('D4-4', 'done'), tk('E5-5', 'planned')])
+    expect(countIn(await r.title())).toBe('2/5')
+  })
+  // AC-16
+  test('The count shows done tickets over all tickets, planned included (all planned)', async ($, on) => {
+    const r = await shown($, on, [tk('A1-1', 'planned'), tk('B2-2', 'planned'), tk('C3-3', 'planned'), tk('D4-4', 'planned')])
+    expect(countIn(await r.title())).toBe('0/4')
+  })
+  const FIVE = [tk('A1-1', 'done'), tk('B2-2', 'planned'), tk('C3-3', 'in progress'), tk('D4-4', 'done'), tk('E5-5', 'planned')]
+  // AC-17
+  test('Each ticket gets its own bar segment when tickets fit', async ($, on) => {
+    expect(glyphs(await titleCells((await shown($, on, FIVE)).ui))).toBe('━━╸━━╸━╸━╸━╸')
+  })
+  // AC-17
+  test('Each ticket gets its own bar segment when tickets fit (one ticket fills the bar)', async ($, on) => {
+    expect(glyphs(await titleCells((await shown($, on, [tk('A1-1', 'planned')])).ui))).toBe('━'.repeat(MAXBAR - 1) + '╸')
+  })
+  // AC-17
+  test('Each ticket gets its own bar segment when tickets fit (as many tickets as cells)', async ($, on) => {
+    const twelve = Array.from({ length: MAXBAR }, (_, i) => tk(uid(i), 'planned'))
+    expect(glyphs(await titleCells((await shown($, on, twelve)).ui))).toBe('╸'.repeat(MAXBAR))
+  })
+  // AC-17
+  test('Each ticket gets its own bar segment when tickets fit (segment colors follow the report order)', async ($, on) => {
+    const cells = await titleCells((await shown($, on, FIVE)).ui)
+    expect(hues(cells)).toEqual([...rep('green', 3), ...rep('gray', 3), ...rep('blue', 2), ...rep('green', 2), ...rep('gray', 2)])
+  })
+  // AC-18
+  test('Each bar segment takes its ticket\'s color', async ($, on) => {
+    const agents = [H_AGENT('w-d', 'failed', 'fix D4-4 alpha', 0)]
+    const r = await shown($, on, [tk('A1-1', 'done'), tk('B2-2', 'in progress'), tk('C3-3', 'planned'), tk('D4-4', 'in progress', F_workerRef({ id: 'w-d' }))], { agents })
+    expect(hues(await titleCells(r.ui))).toEqual([...rep('green', 3), ...rep('blue', 3), ...rep('gray', 3), ...rep('red', 3)])
+  })
+  // AC-18
+  test('Each bar segment takes its ticket\'s color (a done ticket with a Failed worker is green)', async ($, on) => {
+    const agents = [H_AGENT('w-a', 'failed', 'fix A1-1 alpha', 0)]
+    const r = await shown($, on, [tk('A1-1', 'done', F_workerRef({ id: 'w-a' }))], { agents })
+    expect(hues(await titleCells(r.ui))).toEqual(rep('green', MAXBAR))
+  })
+  const crowded = async ($: any, on: On, counts: Parameters<typeof kindsOf>[0]) => {
+    const { tickets, agents } = many(kindsOf(counts))
+    const r = await shown($, on, tickets, { agents })
+    return { r, cells: await titleCells(r.ui) }
+  }
+  const runHues = (list: Array<[Hue, number]>) => list.flatMap(([h, n]) => rep(h, n))
+  /** U-layer deviation: the pure bar rules have no locked names yet, so a case that needs N cells finds the pane width that gives exactly N (sweeping one cell at a time, widest first). Null when no width gives N. */
+  const atCells = async ($: any, on: On, n: number, tickets: readonly Tk[], agents: unknown[]) => {
+    for (let cols = 44; cols >= 8; cols--) {
+      const r = await shown($, on, tickets, { agents, cols, sessions: [own({ title: LONG })] })
+      const cells = await titleCells(r.ui)
+      if (cells.length === n) return { cols, r, cells }
+      if (cells.length === 0 && cols === 44) return null
+      if (cells.length > 0 && cells.length < n) return null
+    }
+    return null
+  }
+  // AC-19: N = 10, T = 12, three of each color: 2.5 cells each, the two leftover cells go to the earlier colors
+  test('Crowded tickets show one run per color ordered done, in progress, attention, planned', async ($, on) => {
+    const { tickets, agents } = many(kindsOf({ done: 3, ip: 3, attn: 3, planned: 3 }))
+    const at = await atCells($, on, 10, tickets, agents)
+    expect({ found: at !== null, runs: at ? hues(at.cells) : null }).toEqual({ found: true, runs: runHues([['green', 3], ['blue', 3], ['red', 2], ['gray', 2]]) })
+  })
+  // AC-19: N = 5, T = 100
+  test('Crowded tickets show one run per color ordered done, in progress, attention, planned (five cells for a hundred tickets)', async ($, on) => {
+    const { tickets, agents } = many(kindsOf({ done: 48, ip: 48, attn: 2, planned: 2 }))
+    const at = await atCells($, on, 5, tickets, agents)
+    expect({ found: at !== null, runs: at ? hues(at.cells) : null }).toEqual({ found: true, runs: runHues([['green', 1], ['blue', 2], ['red', 1], ['gray', 1]]) })
+  })
+  // AC-19: 4 colors tie on fractions at N = 12; the earlier color takes the leftover cell
+  test('Crowded tickets show one run per color ordered done, in progress, attention, planned (twelve cells, four colors tie)', async ($, on) => {
+    const { cells } = await crowded($, on, { done: 4, ip: 4, attn: 1, planned: 4 })
+    expect(hues(cells)).toEqual(runHues([['green', 4], ['blue', 4], ['red', 1], ['gray', 3]]))
+  })
+  // AC-19
+  test('Crowded tickets show one run per color ordered done, in progress, attention, planned (a color with one ticket keeps a cell)', async ($, on) => {
+    const { cells } = await crowded($, on, { done: 39, planned: 1 })
+    expect(hues(cells)).toEqual(runHues([['green', 11], ['gray', 1]]))
+  })
+  // AC-19
+  test('Crowded tickets show one run per color ordered done, in progress, attention, planned (two colors take a cell from the longest)', async ($, on) => {
+    const { cells } = await crowded($, on, { done: 48, ip: 48, attn: 2, planned: 2 })
+    expect(hues(cells)).toEqual(runHues([['green', 5], ['blue', 5], ['red', 1], ['gray', 1]]))
+  })
+  // AC-19
+  test('Crowded tickets show one run per color ordered done, in progress, attention, planned (no run for an absent color)', async ($, on) => {
+    const { cells } = await crowded($, on, { done: 6, ip: 4, planned: 3 })
+    expect(hues(cells)).toEqual(runHues([['green', 5], ['blue', 4], ['gray', 3]]))
+  })
+  // AC-19
+  test('Crowded tickets show one run per color ordered done, in progress, attention, planned (each run ends in an end mark)', async ($, on) => {
+    const { cells } = await crowded($, on, { done: 39, planned: 1 })
+    expect(glyphs(cells)).toBe('━'.repeat(10) + '╸╸')
+  })
+  // AC-19
+  test('Crowded tickets show one run per color ordered done, in progress, attention, planned (the count stays exact)', async ($, on) => {
+    const { r } = await crowded($, on, { done: 39, planned: 1 })
+    expect(countIn(await r.title())).toBe('39/40')
+  })
+  // AC-20
+  test('Twenty-five tickets fit a 12-cell bar in the docked pane', async ($, on) => {
+    const { tickets, agents } = F25()
+    const r = await shown($, on, tickets, { agents, sessions: [own({ title: 'Twenty char title ok' })] })
+    expect(hues(await titleCells(r.ui))).toEqual(runHues([['green', 4], ['blue', 3], ['red', 1], ['gray', 4]]))
+  })
+  // AC-20
+  test('Twenty-five tickets fit a 12-cell bar in the docked pane (count)', async ($, on) => {
+    const { tickets, agents } = F25()
+    const r = await shown($, on, tickets, { agents, sessions: [own({ title: 'Twenty char title ok' })] })
+    expect(countIn(await r.title())).toBe('8/25')
+  })
+  // AC-20
+  test('Twenty-five tickets fit a 12-cell bar in the docked pane (no group chip, title whole)', async ($, on) => {
+    const { tickets, agents } = F25()
+    const r = await shown($, on, tickets, { agents, sessions: [own({ title: 'Twenty char title ok' })] })
+    expect({ count: countIn(await r.title()), starts: /^\s*Twenty char title ok/.test(await r.title()) }).toEqual({ count: '8/25', starts: true })
+  })
+  // AC-20 O: the live capture of the same state is the Owner's (validation plan, Visual Checks).
+  // AC-21
+  test('A ticket entering or leaving attention changes its bar color within 5 seconds', async ($, on) => {
+    const world = mk({ agents: [H_AGENT('w-a', 'running', 'scan AB-1', 0), H_AGENT('w-c', 'running', 'scan CD-2', 1), H_AGENT('w-e', 'running', 'scan EF-3', 2)] })
+    const r = await rig($, on, { world })
+    const list = [tk('AB-1', 'in progress', 'w-a'), tk('CD-2', 'in progress', 'w-c'), tk('EF-3', 'in progress', 'w-e')]
+    await r.report(list)
+    await r.redraw()
+    world.agents = [H_AGENT('w-a', 'running', 'scan AB-1', 0), H_AGENT('w-c', 'failed', 'scan CD-2', 1), H_AGENT('w-e', 'running', 'scan EF-3', 2)]
+    await r.redraw()
+    expect(hues(await titleCells(r.ui))).toEqual(runHues([['blue', 4], ['red', 4], ['blue', 4]]))
+  })
+  // AC-21
+  test('A ticket entering or leaving attention changes its bar color within 5 seconds (leaving: re-reported with a new running worker)', async ($, on) => {
+    const world = mk({ agents: [H_AGENT('w-a', 'running', 'scan AB-1', 0), H_AGENT('w-c', 'failed', 'scan CD-2', 1), H_AGENT('w-e', 'running', 'scan EF-3', 2)] })
+    const r = await rig($, on, { world })
+    await r.report([tk('AB-1', 'in progress', 'w-a'), tk('CD-2', 'in progress', 'w-c'), tk('EF-3', 'in progress', 'w-e')])
+    await r.redraw()
+    const before = hues(await titleCells(r.ui))
+    world.agents = [...(world.agents as unknown[]), H_AGENT('w-n', 'running', 'retry CD-2', 3)]
+    await r.report([tk('AB-1', 'in progress', 'w-a'), tk('CD-2', 'in progress', 'w-n'), tk('EF-3', 'in progress', 'w-e')])
+    await r.redraw()
+    expect({ before, after: hues(await titleCells(r.ui)) }).toEqual({ before: runHues([['blue', 4], ['red', 4], ['blue', 4]]), after: rep('blue', MAXBAR) })
+  })
+  // AC-22
+  test('The count is never shortened or hidden while progress shows', async ($, on) => {
+    const tickets = Array.from({ length: 12 }, (_, i) => tk(uid(i), i < 2 ? 'done' : 'planned'))
+    const seen: Record<number, string | null> = {}
+    for (const cols of [44, 36, 30, 24, 20, 16, 12]) {
+      const r = await shown($, on, tickets, { cols, sessions: [own({ title: 'A very long own title of sixty characters, written out in full ok' })] })
+      seen[cols] = countIn(await r.title())
+    }
+    expect(seen).toEqual({ 44: '2/12', 36: '2/12', 30: '2/12', 24: '2/12', 20: '2/12', 16: '2/12', 12: '2/12' })
+  })
+  const LONG = 'Orchestrate the release train with many parts'
+  type Scene = { cols: number; cells: number; title: string }
+  const sweepScene = async ($: any, on: On, cols: number, tickets: readonly Tk[], epic?: string, title = LONG): Promise<Scene> => {
+    const r = await shown($, on, tickets, { cols, epic, sessions: [own({ title })] })
+    return { cols, cells: (await titleCells(r.ui)).length, title: await titleOfLine(r.ui) }
+  }
+  // AC-23: every width from the one where title + 12-cell bar + count fit, down by one cell
+  test('A narrow title line shortens the title first and the bar only after the title is at its minimum', async ($, on) => {
+    const tickets = [tk('AB-1', 'done'), tk('CD-2', 'planned'), tk('EF-3', 'planned')]
+    const scenes: Scene[] = []
+    for (let cols = 44; cols >= 12; cols--) scenes.push(await sweepScene($, on, cols, tickets, undefined, TIT))
+    const atMin = (s: Scene) => cellWidth(s.title) === 2
+    const firstCut = scenes.find(s => s.title !== TIT)
+    const violations = [
+      ...scenes.filter(s => s.cells > 0 && s.cells < MAXBAR && !atMin(s)).map(s => `bar ${s.cells} before the title is at its minimum at ${s.cols}`),
+      ...scenes.filter(s => s.title !== '' && cellWidth(s.title) < 2).map(s => `title under 2 cells at ${s.cols}`),
+      ...scenes.slice(1).filter((s, i) => { const p = scenes[i]!; return atMin(s) && atMin(p) && s.cells >= 5 && p.cells >= 5 && p.cells - s.cells !== p.cols - s.cols }).map(s => `bar not 1 cell per column at ${s.cols}`),
+    ]
     expect({
-      tokens: tokensOf(line),
-      glue: glue?.kind === 'text' ? glue.text : null,
-      count: last?.kind === 'text' ? last.text : null,
-      barCells: [...barText(line)].every(c => c === '━' || c === '╸') && barText(line).length >= 5,
-    }).toEqual({ tokens: ['title', 'sp', 'bar', 'sp', 'count'], glue: ' ', count: countOf(line), barCells: true })
+      full: scenes[0]!.cells, wholeTitle: scenes[0]!.title, firstCut: firstCut ? { ellipsis: firstCut.title.endsWith('…'), cells: firstCut.cells } : null,
+      shrinks: scenes.some(s => s.cells >= 5 && s.cells < MAXBAR), violations,
+    }).toEqual({ full: MAXBAR, wholeTitle: TIT, firstCut: { ellipsis: true, cells: MAXBAR }, shrinks: true, violations: [] })
   })
-  test('Owner reads chip, title, bar and count on the title line and the status where it always was', () => {
-    // The title line's segments, in order: the chip text, one title segment, one spacer, bar segments, one ' ', one count segment last (R-19).
-    const line = ownOf(view(three(), { own: { title: 'WS-138 Orchestrate' } })).lines[1]!
-    const title = line.findIndex(s => roleOf(s) === 'title')
-    const spacer = line[title + 1]
-    const last = line[line.length - 1]!
+  const ONE_LINE = (x: Omit<Sess, 'name'> = {}): Sess[] => [S('own', { status: 'busy', sinceMs: 5 * MIN, cwd: '/p/Zproj-long-project-name', title: 'Qtitle words for the sweep', ...x })]
+  const oneLineWorld = (w: World = {}) => mk({ ...w, store: new Map<string, unknown>([['setting:workingShelf', true]]) })
+  const FOUR = [tk('A1-1', 'done'), tk('B2-2', 'planned'), tk('C3-3', 'planned'), tk('D4-4', 'in progress')]
+  const oneLine = async ($: any, on: On, cols: number, tickets: readonly Tk[] = FOUR, epic = 'EP-1') => {
+    const r = await rig($, on, { world: oneLineWorld(), sessions: ONE_LINE(), cols })
+    await r.report(tickets, epic)
+    await r.redraw()
+    return { r, text: await ownRowText(r.ui), cells: await ownRowCells(r.ui) }
+  }
+  // AC-24
+  test('A one-line own card shows the count without bar or chip', async ($, on) => {
+    const { text, cells } = await oneLine($, on, 44)
+    const at = ['Zproj', 'Qtitle', '1/4', 'Working'].map(w => text.indexOf(w))
+    expect({ ordered: at.every((x, i) => x >= 0 && (i === 0 || x > at[i - 1]!)), bar: cells.length, chip: text.includes('◆') }).toEqual({ ordered: true, bar: 0, chip: false })
+  })
+  // AC-24
+  test('A one-line own card shows the count without bar or chip (narrowing: title, then project, then title dropped; count and status kept)', async ($, on) => {
+    const states: Array<{ cols: number; project: 'full' | 'cut' | 'none'; title: 'full' | 'cut' | 'min' | 'none'; count: boolean; status: boolean }> = []
+    for (const cols of [44, 40, 36, 32, 28, 26, 24, 22, 20]) {
+      const { text } = await oneLine($, on, cols)
+      states.push({
+        cols, project: text.includes('Zproj-long-project-name') ? 'full' : text.includes('Z') ? 'cut' : 'none',
+        title: text.includes('Qtitle words for the sweep') ? 'full' : text.includes('Q…') ? 'min' : text.includes('Q') ? 'cut' : 'none',
+        count: text.includes('1/4'), status: text.includes('Working'),
+      })
+    }
+    const violations = [
+      ...states.filter(s => !s.count || !s.status).map(s => `count or status cut at ${s.cols}`),
+      ...states.filter(s => s.project !== 'full' && (s.title === 'full' || s.title === 'cut')).map(s => `project cut before the title is at its minimum at ${s.cols}`),
+      ...states.filter(s => s.title === 'none' && s.project !== 'none').map(s => `title dropped before the project at ${s.cols}`),
+    ]
+    expect({ countAt44: states[0]!.count, violations }).toEqual({ countAt44: true, violations: [] })
+  })
+  // AC-25
+  test('A title line with fewer than 5 bar cells shows the count only', async ($, on) => {
+    const tickets = [tk('AB-1', 'done'), tk('CD-2', 'planned'), tk('EF-3', 'planned')]
+    const scenes: Array<Scene & { chip: boolean; count: boolean; text: string }> = []
+    for (let cols = 44; cols >= 8; cols--) {
+      const r = await shown($, on, tickets, { cols, epic: 'AID-300', sessions: [own({ title: LONG })] })
+      const text = await r.title()
+      scenes.push({ cols, cells: (await titleCells(r.ui)).length, title: await titleOfLine(r.ui), chip: text.includes('◆AID-300'), count: countIn(text) === '1/3', text })
+    }
+    const violations = [
+      ...scenes.filter(s => s.count && s.cells > 0 && s.cells < 5).map(s => `a ${s.cells}-cell bar at ${s.cols}`),
+      ...scenes.filter(s => s.count && s.cells === 0 && s.title !== '' && cellWidth(s.title) > 2).map(s => `title above its minimum on a count-only line at ${s.cols}`),
+      ...scenes.filter(s => s.count && s.title === '' && s.chip).map(s => `title dropped before the chip at ${s.cols}`),
+      ...scenes.filter(s => s.cells === 0 && s.count && !/1\/3\s*$/.test(s.text)).map(s => `count not at the line's end at ${s.cols}`),
+    ]
     expect({
-      chip: plain(line.slice(0, title)),
-      roles: line.map(roleOf).filter(Boolean).filter((r, i, all) => r !== all[i - 1]),
-      title: line[title]!.kind === 'text' ? (line[title] as { text: string }).text : null,
-      spacer: spacer?.kind === 'text' && roleOf(spacer) === undefined && spacer.color === undefined && /^ +$/.test(spacer.text),
-      glue: tokensOf(line).slice(-3, -1),
-      count: last.kind === 'text' ? [roleOf(last), /^\d+\/\d+$/.test(last.text)] : null,
-    }).toEqual({ chip: '▐WS-138▌ ', roles: ['title', 'bar', 'count'], title: 'Orchestrate', spacer: true, glue: ['bar', 'sp'], count: ['count', true] })
+      countOnly: scenes.some(s => s.cells === 0 && s.count), chipDropped: scenes.some(s => s.count && !s.chip && s.title !== ''),
+      titleDropped: scenes.some(s => s.count && s.title === ''), violations,
+    }).toEqual({ countOnly: true, chipDropped: true, titleDropped: true, violations: [] })
   })
-  test('Owner reads chip, title, bar and count on the title line and the status where it always was (status and age unmoved)', () => {
-    // The expected line is frozen from the pre-feature code (fixtures/ws138/baseline.ts): the same card, prefixes off, no workers.
-    const withBar = view(three(), { own: { title: 'WS-138 Orchestrate', raw: 'busy', statusSince: NOW - 5 * MIN } })
-    expect(plain(ownOf(withBar).lines[0]!)).toBe(BUSY_STATUS_LINE)
+  /** The widest width at which the bar has exactly 5 cells (sweeping one cell at a time); null when no width gives 5. */
+  const fiveCellWidth = async ($: any, on: On, tickets: readonly Tk[]) => {
+    for (let cols = 44; cols >= 8; cols--) {
+      const n = (await titleCells((await shown($, on, tickets, { cols, epic: 'AID-300', sessions: [own({ title: LONG })] })).ui)).length
+      if (n === 5) return cols
+      if ((n > 0 && n < 5) || (cols === 44 && n === 0)) return null
+    }
+    return null
+  }
+  const THREE_25 = [tk('AB-1', 'done'), tk('CD-2', 'planned'), tk('EF-3', 'planned')]
+  // AC-25 / NH-16: the boundary N = 5
+  test('A title line with fewer than 5 bar cells shows the count only (a width gives exactly a 5-cell bar)', async ($, on) => {
+    expect({ widthWithFiveCells: (await fiveCellWidth($, on, THREE_25)) !== null }).toEqual({ widthWithFiveCells: true })
   })
-  test('Owner sees each ticket get an equal share of the bar, extras to the first tickets', () => {
-    const mix = (statuses: TStatus[]) => statuses.map((s, i) => tk(`WS-${11 + i}`, s, i))
-    const expand = (hues: Hue[], widths: number[]) => hues.flatMap((h, i) => rep(h, widths[i]!))
-    // Widths derive from MAXBAR (literals below are for MAXBAR 12); no case uses N > MAXBAR (R-2).
-    expect([
-      barWith(mix(['working', 'done', 'stopped']), MAXBAR - 1),
-      barWith(mix(['working', 'done', 'stopped', 'failed']), MAXBAR - 2),
-      barWith(mix(['working', 'done', 'stopped', 'failed', 'needs-you']), 5),
-      barWith(mix(['working', 'done']), MAXBAR),
-    ]).toEqual([
-      expand(['yellow', 'green', 'gray'], [4, 4, 3]),
-      expand(['yellow', 'green', 'gray', 'red'], [3, 3, 2, 2]),
-      ['yellow', 'green', 'gray', 'red', 'red'],
-      expand(['yellow', 'green'], [6, 6]),
-    ])
-  })
-  test('Owner sees each ticket get an equal share of the bar, extras to the first tickets (cell glyphs)', () => {
-    // R-5: every cell is `━`, each segment's last cell `╸`, coloured by foreground, no background, no separator cell. N = 11, T = 3: 4, 4, 3.
-    const kids = [tk('WS-11', 'working', 0), tk('WS-12', 'done', 1), tk('WS-13', 'stopped', 2)]
-    const line = WIDTHS.map(w => lineAt(kids, w)).find(l => barOf(l).length === MAXBAR - 1) ?? lineAt(kids, 44)
-    expect({ text: barText(line), bg: line.filter(s => roleOf(s) === 'bar').some(s => s.kind === 'text' && s.bg !== undefined) }).toEqual({ text: '━━━╸━━━╸━━╸', bg: false })
-  })
-  test('Owner reads the count as tickets done over all tickets', () => {
-    const v = view([tk('WS-11', 'done', 0), tk('WS-12', 'done', 1), tk('WS-13', 'working', 2), tk('WS-14', 'failed', 3), tk('WS-15', 'stopped', 4)])
-    expect(countOf(ownOf(v).lines[1]!)).toBe('2/5')
-  })
-  test('Owner sees each segment in its ticket\'s status color', () => {
-    // Needs you and Failed are both red, so each case holds only one of them; their order is the plan's run-length re-translation (see the plan).
-    const at = (statuses: TStatus[]) => statuses.map((s, i) => tk(`WS-${11 + i}`, s, i))
-    expect([
-      runsOf(barOf(ownOf(view(at(['working', 'needs-you', 'done', 'stopped']))).lines[1]!)),
-      runsOf(barOf(ownOf(view(at(['working', 'failed', 'done', 'stopped']))).lines[1]!)),
-    ]).toEqual([['yellow', 'red', 'green', 'gray'], ['yellow', 'red', 'green', 'gray']])
-  })
-  test('Owner sees each segment in its ticket\'s status color (ticket status of each cell)', async () => {
-    // R-7: the same two cases at the status level, where Needs you and Failed are told apart (8 cells, 2 per ticket).
-    const at = (statuses: TStatus[]) => statuses.map((s, i) => tk(`WS-${11 + i}`, s, i))
-    expect([
-      await statusCells(at(['working', 'needs-you', 'done', 'stopped']), 8),
-      await statusCells(at(['working', 'failed', 'done', 'stopped']), 8),
-    ]).toEqual([
-      ['working', 'working', 'needs-you', 'needs-you', 'done', 'done', 'stopped', 'stopped'],
-      ['working', 'working', 'failed', 'failed', 'done', 'done', 'stopped', 'stopped'],
-    ])
-  })
-  test('Owner sees tickets ordered by when their first worker started', () => {
-    // WS-12 and WS-14 start at the same moment (a same-prefix tie, where every reading of the tie rule agrees); WS-14 is listed first.
-    const v = view([
-      tk('WS-15', 'working', 1, 'early'), tk('WS-15', 'done', 9, 'late'), tk('WS-11', 'working', 3), tk('WS-14', 'working', 0), tk('WS-12', 'working', 0),
-    ])
-    expect(leads(v)).toEqual(['WS-12', 'WS-14', 'WS-15', 'WS-11'])
-  })
-  test('Owner sees tickets ordered by when their first worker started (tie across prefixes)', () => {
-    // R-6: APP-3 and WS-12 start together, WS-12 listed first: the id breaks the tie by code units, so APP-3 comes first.
-    const v = view([tk('WS-12', 'working', 0), tk('APP-3', 'working', 0), tk('WS-11', 'working', 4)])
-    expect(leads(v)).toEqual(['APP-3', 'WS-12', 'WS-11'])
-  })
-  test('Owner sees tickets ordered by when their first worker started (tie WS-9 and WS-10)', () => {
-    // R-6: the tie is code-unit order, not number order: WS-10 before WS-9.
-    const v = view([tk('WS-9', 'working', 0), tk('WS-10', 'working', 0), tk('WS-11', 'working', 4)])
-    expect(leads(v)).toEqual(['WS-10', 'WS-9', 'WS-11'])
-  })
-  test('Owner always sees the whole count, however narrow the pane', () => {
-    const kids = [...tickets(9, 'working'), ...[20, 21, 22].map((n, i) => tk(`WS-${n}`, 'done', 20 + i))]
-    expect([44, 30, 20, 14, 10].map(w => countOf(lineAt(kids, w)))).toEqual(['3/12', '3/12', '3/12', '3/12', '3/12'])
-  })
-  test('Owner always sees the whole count, however narrow the pane (one-line own card)', () => {
-    // R-26: own busy card on the Working shelf, 12 tickets, long project and title. Panes from 44 down to the smallest supported one-line pane:
-    // slot cells (read at a wide width; the spinner is one cell) + 1 space + count cells + 2.
-    const kids = [...tickets(9, 'working'), ...[20, 21, 22].map((n, i) => tk(`WS-${n}`, 'done', 20 + i))]
-    const o = { workingShelf: true, own: { raw: 'busy', statusSince: NOW - 5 * MIN, project: 'a-very-long-project-name-for-the-sweep' } } satisfies V
-    const oneLine = (width: number) => ownOf(view(kids, { ...o, width })).lines[0] ?? []
-    const wide = oneLine(80)
-    const slot = plain(slotOfLine(wide))
-    const smallest = cellWidth(slot) + 1 + '3/12'.length + 2
-    const broken = sweep(44, smallest).filter(w => {
-      const line = oneLine(w)
-      const text = plain(line)
-      const project = line.find(s => roleOf(s) === 'project')
-      const title = line.find(s => roleOf(s) === 'title')
-      const projectCut = project?.kind === 'text' && project.text !== plain(wide.filter(s => roleOf(s) === 'project'))
-      const titleLeft = title?.kind === 'text' && title.text !== ''
-      const bar = line.some(s => roleOf(s) === 'bar')
-      return !text.endsWith(`3/12 ${slot}`) || (projectCut && titleLeft) || bar
-    })
-    expect({ slotDrawn: slot !== '', lines: ownOf(view(kids, { ...o, width: 44 })).lines.length, broken }).toEqual({ slotDrawn: true, lines: 1, broken: [] })
-  })
-  test('Owner sees the title shorten first, and the bar shrink only once the title is at its minimum', () => {
-    const kids = tickets(4)
-    const own = { title: 'WS-138 Orchestrate the release train with many parts to it' }
-    // The sweep starts at 44 and ends at the smallest supported pane for chip WS-138 (9 cells) and count 0/4: 9 + 2 + 1 + 3 + 2 = 17 (R-18).
-    const series = sweep(44, 17).map(w => {
-      const line = lineAt(kids, w, { own })
-      const title = line.find(s => s.kind === 'text' && s.role === 'title')
-      return { w, n: barOf(line).length, title: title && title.kind === 'text' ? title.text : '', chip: plain(line).includes('WS-138') }
-    })
-    const first = series[0]?.title.charAt(0) ?? ''
-    const violations = series.filter(p => p.n > 0 && p.n < MAXBAR && p.title !== `${first}…`)
-    const atCap = series.some(p => p.n === MAXBAR && p.title.endsWith('…'))
-    // At the widths just below where N falls under 5 (count only), the chip is whole and the title is still its first character and `…`.
-    const drop = series.findIndex(p => p.n === 0)
-    const floor = (drop < 0 ? [] : series.slice(drop, drop + 4)).filter(p => p.title !== `${first}…` || !p.chip).map(p => p.w)
-    expect({ atCap, violations, floor }).toEqual({ atCap: true, violations: [], floor: [] })
-  })
-  test('Owner in a very narrow pane sees the count only', () => {
-    const kids = tickets(4)
-    // The sweep covers panes from 44 down to the smallest supported one for a card with no chip and count 0/4: 2 + 1 + 3 + 2 = 8 columns (R-18).
-    const series = sweep(44, 8).map(w => ({ w, n: barOf(lineAt(kids, w)).length, count: countOf(lineAt(kids, w)), titled: hasTitle(lineAt(kids, w)) }))
-    const smallest = Math.min(...series.filter(p => p.n > 0).map(p => p.n))
-    const partial = series.filter(p => p.n > 0 && p.n < 5).map(p => p.w)
-    const drop = series.find(p => p.n < 5)
-    // `barOf` reads nothing on a line without a title segment, so every width must carry one for "no cells" to mean no bar.
-    const untitled = series.filter(p => !p.titled).map(p => p.w)
-    expect({ smallest, partial, untitled, drop: drop ? { n: drop.n, count: drop.count } : null }).toEqual({ smallest: 5, partial: [], untitled: [], drop: { n: 0, count: '0/4' } })
-  })
-  test('Owner with more tickets than bar cells sees one run per status, in a fixed order', () => {
-    const at = (statuses: TStatus[]) => statuses.map((s, i) => tk(`WS-${11 + i}`, s, i))
-    const crowded1 = at(['failed', 'done', 'working', 'done', 'needs-you', 'done', 'working', 'done', 'done', 'working', 'done', 'done'])
-    // Done 7, Working 3 and two red tickets of one kind: N = 5 gives Done 3, Working 1, red 1 (floors 2, 1, 0; leftovers to Done and the red status).
-    const crowded1Needs = at(['needs-you', 'done', 'working', 'done', 'needs-you', 'done', 'working', 'done', 'done', 'working', 'done', 'done'])
-    const crowded1Failed = at(['failed', 'done', 'working', 'done', 'failed', 'done', 'working', 'done', 'done', 'working', 'done', 'done'])
-    const crowded2 = at(['stopped', ...rep('green', 9).map(() => 'done' as TStatus)])
-    const crowded3 = at(['failed', 'done', 'working', 'failed', 'done', 'working'])
-    expect([
-      { cells: barWith(crowded1, 5), count: countOf(lineAt(crowded1, 120)) },
-      { cells: barWith(crowded1Needs, 5), count: countOf(lineAt(crowded1Needs, 120)) },
-      { cells: barWith(crowded1Failed, 5), count: countOf(lineAt(crowded1Failed, 120)) },
-      { cells: barWith(crowded2, 6), count: countOf(lineAt(crowded2, 120)) },
-      { cells: barWith(crowded3, 5), count: countOf(lineAt(crowded3, 120)) },
-    ]).toEqual([
-      { cells: ['green', 'green', 'yellow', 'red', 'red'], count: '7/12' },
-      { cells: ['green', 'green', 'green', 'yellow', 'red'], count: '7/12' },
-      { cells: ['green', 'green', 'green', 'yellow', 'red'], count: '7/12' },
-      { cells: [...rep('green', 5), 'gray'], count: '9/10' },
-      { cells: ['green', 'green', 'yellow', 'yellow', 'red'], count: '2/6' },
-    ])
-  })
-  test('Owner with more tickets than bar cells sees one run per status, in a fixed order (ticket status runs)', async () => {
-    // R-7: the runs as TicketStatus[] from the locked pure rules, so Needs you and Failed (both red) are told apart.
-    const at = (statuses: TStatus[]) => statuses.map((s, i) => tk(`WS-${11 + i}`, s, i))
-    const crowded1 = at(['failed', 'done', 'working', 'done', 'needs-you', 'done', 'working', 'done', 'done', 'working', 'done', 'done'])
-    const crowded1Needs = at(['needs-you', 'done', 'working', 'done', 'needs-you', 'done', 'working', 'done', 'done', 'working', 'done', 'done'])
-    const crowded1Failed = at(['failed', 'done', 'working', 'done', 'failed', 'done', 'working', 'done', 'done', 'working', 'done', 'done'])
-    const crowded2 = at(['stopped', ...Array.from({ length: 9 }, () => 'done' as TStatus)])
-    const crowded3 = at(['failed', 'done', 'working', 'failed', 'done', 'working'])
-    expect([
-      countRuns(await statusCells(crowded1, 5)),
-      countRuns(await statusCells(crowded1Needs, 5)),
-      countRuns(await statusCells(crowded1Failed, 5)),
-      countRuns(await statusCells(crowded2, 6)),
-      countRuns(await statusCells(crowded3, 5)),
-    ]).toEqual([
-      [['done', 2], ['working', 1], ['needs-you', 1], ['failed', 1]],
-      [['done', 3], ['working', 1], ['needs-you', 1]],
-      [['done', 3], ['working', 1], ['failed', 1]],
-      [['done', 5], ['stopped', 1]],
-      [['done', 2], ['working', 2], ['failed', 1]],
-    ])
-  })
-  test('Owner sees workers without a ticket leave the bar and count alone', () => {
-    const v = view([tk('WS-11', 'done', 0), tk('WS-12', 'working', 1), kid('review docs', 'working', 2), kid('lint pass', 'done', 3), kid('trim fixtures', 'working', 4)])
-    expect({ count: countOf(ownOf(v).lines[1]!), hues: runsOf(barOf(ownOf(v).lines[1]!)) }).toEqual({ count: '1/2', hues: ['green', 'yellow'] })
+  // AC-25 / NH-16
+  test('A title line with fewer than 5 bar cells shows the count only (one cell narrower than the 5-cell width draws no bar)', async ($, on) => {
+    const cols = await fiveCellWidth($, on, THREE_25)
+    const r = cols === null ? null : await shown($, on, THREE_25, { cols: cols - 1, epic: 'AID-300', sessions: [own({ title: LONG })] })
+    expect({ found: cols !== null, bar: r === null ? null : await hasBar(r.ui), count: r === null ? null : countIn(await r.title()) }).toEqual({ found: true, bar: false, count: '1/3' })
   })
 })
 
-// ================================================================ 4. Ticket rows (AC-27 to AC-37)
-describe('4. ticket rows', () => {
-  const twoTickets = () => [tk('WS-11', 'done', 0, 'a'), tk('WS-11', 'working', 1, 'b'), tk('WS-11', 'working', 2, 'c'), tk('WS-12', 'working', 3)]
-  test('Owner sees one row per ticket under the own card instead of one per worker', () => {
-    expect(leads(view(twoTickets()))).toEqual(['WS-11', 'WS-12'])
+// ================================================================ 4. Group chip
+describe('4. group chip', () => {
+  const titleWith = async ($: any, on: On, tickets: readonly Tk[], o: { epic?: string; world?: World; sessions?: Sess[] } = {}) => {
+    const r = await rig($, on, { world: o.world, sessions: o.sessions })
+    await r.report(tickets, o.epic)
+    await r.redraw()
+    return r.title()
+  }
+  // AC-26
+  test('A report that names an epic shows the epic chip', async ($, on) => {
+    expect(/^\s*◆AID-300\b/.test(await titleWith($, on, [tk('WS-1', 'done'), tk('APP-2', 'planned')], { epic: 'AID-300' }))).toBe(true)
   })
-  test('Owner reads a ticket row: id, status dot, newest worker\'s description, and its status or age', () => {
-    const v = view([kid('scan WS-11 alpha', 'done', 0, 30), kid('fix WS-11 beta', 'working', 4, 2), kid('plan WS-12 gamma', 'working', 5)])
-    // WS-11 has two workers, so ` ×2` may follow the description (R-21).
-    expect(stripRow(rowText(v, 'WS-11'))).toMatch(/^WS-11\s+●\s+fix WS-11 beta(?: ×2)?\s+.*Working 2m\s*$/)
+  // AC-27
+  test('Tickets sharing one letters prefix show that prefix as the chip', async ($, on) => {
+    expect(/^\s*AID\s+Release 42/.test(await titleWith($, on, [tk('AID-12', 'done'), tk('AID-40', 'planned')]))).toBe(true)
   })
-  test('Owner reads a ticket row: id, status dot, newest worker\'s description, and its status or age (Stopped reads age only)', () => {
-    // R-21: a Stopped newest worker shows its age only, in gray, as a child row does; no Idle or Stopped word.
-    const v = view([tk('WS-11', 'working', 0), kid('plan WS-12 old', 'done', 1, 30), kid('stop WS-12 new', 'idle', 5, 3)])
-    const row = stripRow(rowText(v, 'WS-12'))
-    expect({ shape: /^WS-12\s+●\s+stop WS-12 new ×2\s+3m\s*$/.test(row), word: /Idle|Stopped/.test(row) }).toEqual({ shape: true, word: false })
+  // AC-27
+  test('Tickets sharing one letters prefix show that prefix as the chip (one ticket)', async ($, on) => {
+    expect(/^\s*AID\s+Release 42/.test(await titleWith($, on, [tk('AID-1', 'planned')]))).toBe(true)
   })
-  test('Owner sees a Done ticket\'s dot in green, while a finished child row\'s dot stays gray', () => {
-    const v = view([tk('WS-11', 'done', 0), tk('WS-12', 'working', 1), kid('review docs', 'done', 2)])
-    expect({ ticket: dotHue(rowFor(v, 'WS-11')?.text), child: dotHue(rowFor(v, 'review docs')?.text) }).toEqual({ ticket: 'green', child: 'gray' })
+  // AC-27
+  test('Tickets sharing one letters prefix show that prefix as the chip (letter case differs: no chip)', async ($, on) => {
+    const line = await titleWith($, on, [tk('aid-3', 'planned'), tk('AID-4', 'planned')])
+    expect({ count: countIn(line), noChip: /^\s*Release 42/.test(line) }).toEqual({ count: '0/2', noChip: true })
   })
-  test('Owner sees how many workers a ticket has when it has more than one', () => {
-    const v = view(twoTickets())
-    // `×3` sits after the description (the newest worker's, `scan WS-11 c`) and before the status (R-21).
-    expect([/scan WS-11 c ×3\s+.*Working 2m\s*$/.test(rowText(v, 'WS-11')), rowText(v, 'WS-12').includes('×')]).toEqual([true, false])
+  const noChip = (label: string, tickets: Tk[]) =>
+    // AC-28
+    test(`Tickets without one shared prefix show no group chip (${label})`, async ($, on) => {
+      const line = await titleWith($, on, tickets)
+      expect({ count: countIn(line) !== null, noChip: /^\s*Release 42/.test(line) }).toEqual({ count: true, noChip: true })
+    })
+  noChip('two trackers', [tk('WS-1', 'planned'), tk('APP-2', 'planned')])
+  noChip('a misshaped id', [tk('WS-1', 'planned'), tk('WS-2a', 'planned')])
+  noChip('an id of digits', [tk('WS-1', 'planned'), tk('123', 'planned')])
+  noChip('underscores', [tk('WS_1', 'planned'), tk('WS_2', 'planned')])
+  const branched = (): Sess[] => [own({ branch: 'WS-12-fix' })]
+  // AC-29
+  test('While progress shows the own card never shows its branch chip', async ($, on) => {
+    const line = await titleWith($, on, [tk('APP-1', 'planned'), tk('CD-2', 'planned')], { world: withPrefixes(), sessions: branched() })
+    expect({ count: countIn(line) !== null, branchChip: /WS-12/.test(line) }).toEqual({ count: true, branchChip: false })
   })
-  test('Owner sees workers without a ticket keep their own rows after the ticket rows', () => {
-    const v = view([tk('WS-11', 'working', 0), tk('WS-12', 'working', 1), kid('review docs', 'working', 2), kid('lint pass', 'working', 3)])
-    // No-ticket rows keep the child-row order (urgency, then newest first): the later-started `lint pass` comes before `review docs` (R-22).
-    expect(leads(v)).toEqual(['WS-11', 'WS-12', 'lint pass', 'review docs'])
+  // AC-29
+  test('While progress shows the own card never shows its branch chip (the group chip shows instead)', async ($, on) => {
+    const line = await titleWith($, on, [tk('APP-1', 'planned'), tk('APP-2', 'planned')], { world: withPrefixes(), sessions: branched() })
+    expect({ groupChip: /^\s*APP\b/.test(line), branchChip: /WS-12/.test(line) }).toEqual({ groupChip: true, branchChip: false })
   })
-  test('Owner sees at most five rows, then "+K more"', () => {
-    const pair = (n: number) => [tk(`WS-${n}`, 'working', n, 'a'), tk(`WS-${n}`, 'done', n + 20, 'b')]
-    const four = [...pair(11), ...pair(12), ...pair(13), ...pair(14)]
-    const seven = [...four, ...pair(15), ...pair(16), ...pair(17)]
-    const shape = (kids: Child[]) => { const v = view(kids); return { rows: rowsOf(v).length, more: ownOf(v).children?.more } }
-    expect([
-      shape([...four, kid('review docs', 'working', 40)]),
-      shape([...four, kid('review docs', 'working', 40), kid('lint pass', 'working', 41), kid('trim fixtures', 'working', 42)]),
-      shape(seven),
-    ]).toEqual([{ rows: 5, more: undefined }, { rows: 5, more: '+2 more' }, { rows: 5, more: '+2 more' }])
-  })
-  test('Owner presses a ticket row and the newest worker\'s transcript opens', async ($, on) => {
-    const agents = [H_AGENT('w1', 'completed', 'scan WS-11 alpha', 0), H_AGENT('w2', 'running', 'fix WS-11 beta', 4), H_AGENT('w3', 'running', 'plan WS-12 gamma', 5)]
-    const world: World = withPrefixes({ agents, views: [] })
-    const { ui } = await mountPane($, on, [S('own')], world)
-    const buttons = (await ui.findAll({ type: 'Button' })).filter((b: any) => leadOf(b.text ?? '') === 'WS-11')
-    if (buttons.length === 1) await ui.press({ key: buttons[0].key })
-    expect(world.views).toEqual([{ agentId: 'w2' }])
-  })
-  test('Owner sees ticket rows without hovering over the card', async ($, on) => {
-    const { ui } = await mountPane($, on, [S('own')], withPrefixes({ agents: THREE() }))
-    expect(await hLeads(ui)).toEqual(['WS-11', 'WS-12', 'APP-3'])
-  })
-  test('Owner without ticket progress sees the child rows exactly as before', () => {
-    // The expected rows are frozen from the pre-feature code (fixtures/ws138/baseline.ts), not computed by the layout code under test.
-    const kids = [kid('review docs', 'working', 0), kid('lint pass', 'done', 1), kid('trim fixtures', 'failed', 2), kid('scan WS-11 alpha', 'working', 3), kid('tidy shelf', 'working', 4), kid('port notes', 'idle', 5)]
-    const shape = (v: PaneView) => ({ rows: rowsOf(v).map(r => plain(r.text)), more: ownOf(v).children?.more })
-    const frozen = { rows: SIX_WORKER_ROWS, more: SIX_WORKER_MORE }
-    // (a) prefixes off; (b) prefixes on with a single ticket among the workers.
-    expect([shape(view(kids, { prefixes: [] })), shape(view(kids))]).toEqual([frozen, frozen])
-  })
-  test('Owner sees the count but no bar on a one-line own card', () => {
-    const v = view(tickets(3), { workingShelf: true, own: { raw: 'busy', statusSince: NOW - 5 * MIN } })
-    const card = ownOf(v)
-    const line = card.lines[0]!
-    // The count sits directly before the status slot, exactly one space apart (L-3b).
-    const before = plain(line.slice(0, line.length - slotOfLine(line).length))
-    expect({ lines: card.lines.length, count: countOf(line), titled: hasTitle(line), bar: barOf(line).length, gap: /3 $/.test(before) && /\d\/3 $/.test(before) })
-      .toEqual({ lines: 1, count: '0/3', titled: true, bar: 0, gap: true })
-  })
-  test('Owner sees ticket rows under a one-line own card too', () => {
-    const v = view(tickets(3), { workingShelf: true, own: { raw: 'busy', statusSince: NOW - 5 * MIN } })
-    expect(leads(v)).toEqual(['WS-11', 'WS-12', 'WS-13'])
+  // AC-30
+  test('Cards without progress keep their branch chip as before', async ($, on) => {
+    const r = await rig($, on, { world: withPrefixes(), sessions: [own(), S('other', { cwd: '/q', branch: 'WS-77-x', title: 'Other work' })] })
+    await r.report(THREE)
+    await r.redraw()
+    expect({ ownShows: countIn(await r.title()) !== null, otherChip: /WS-77/.test(await r.title('other')) }).toEqual({ ownShows: true, otherChip: true })
   })
 })
 
-// ================================================================ 5. Waiting (AC-38 to AC-45)
-describe('5. waiting', () => {
+// ================================================================ 5. Ticket rows
+describe('5. ticket rows', () => {
+  const rowsWith = async ($: any, on: On, tickets: readonly Tk[], o: { agents?: unknown[]; cols?: number; world?: World } = {}) => {
+    const r = await rig($, on, { world: o.world ?? mk({ agents: o.agents ?? [] }), cols: o.cols ?? 44 })
+    await r.report(tickets)
+    await r.redraw()
+    return { r, rows: await rowInfo(r.ui) }
+  }
+  // AC-31
+  test('Progress lists one row per ticket under the own card', async ($, on) => {
+    const { rows } = await rowsWith($, on, [tk('AB-1', 'planned'), tk('CD-2', 'planned'), tk('EF-3', 'planned'), tk('GH-4', 'planned')])
+    expect({ each: ['AB-1', 'CD-2', 'EF-3', 'GH-4'].map(id => rows.filter(r => has(r.text, id)).length), total: rows.length }).toEqual({ each: [1, 1, 1, 1], total: 4 })
+  })
+  const AGENTS32 = [
+    H_AGENT('w-run', 'running', 'job alpha', 0, { statusSince: TUE_10 - 7 * MIN }), H_AGENT('w-bad', 'failed', 'job beta', 1),
+    H_AGENT('w-ask', 'running', 'job gamma', 2), H_AGENT('w-top', 'failed', 'job delta', 3), F_rollup('w-sub', 'w-top', 'running', 'job sub', 4),
+  ]
+  const LIST32 = [tk('PLN-1', 'planned'), tk('RUN-2', 'in progress', 'w-run'), tk('DON-3', 'done'), tk('BAD-4', 'in progress', 'w-bad'), tk('ASK-5', 'in progress', 'w-ask'), tk('TOP-6', 'in progress', 'w-top')]
+  const rows32 = async ($: any, on: On) => {
+    const world = mk({ agents: AGENTS32 })
+    const r = await rig($, on, { world })
+    await askFor($, world, 'w-ask')
+    await askFor($, world, 'w-sub')
+    await r.report(LIST32)
+    await r.redraw()
+    return rowInfo(r.ui)
+  }
+  const word32 = (label: string, id: string, word: RegExp, extra: RegExp = /./) =>
+    // AC-32
+    test(`A ticket row shows id, colored dot, state word and its worker's age (${label})`, async ($, on) => {
+      const row = rowOfId(await rows32($, on), id)
+      expect({ found: row !== undefined, word: word.test(row?.text ?? ''), extra: extra.test(row?.text ?? '') }).toEqual({ found: true, word: true, extra: true })
+    })
+  word32('Planned', 'PLN-1', /Planned/)
+  word32('In progress with the worker\'s age', 'RUN-2', /In progress/, /\b7m\b/)
+  word32('Done', 'DON-3', /Done/)
+  word32('Failed', 'BAD-4', /Failed/)
+  word32('Needs you', 'ASK-5', /Needs you/)
+  word32('Needs you when a rolled-up subagent asks and the worker failed', 'TOP-6', /Needs you/)
+  // AC-32
+  test('A ticket row shows id, colored dot, state word and its worker\'s age (dot colors)', async ($, on) => {
+    const rows = await rows32($, on)
+    const hue = (id: string) => rowOfId(rows, id)?.hue
+    expect(['PLN-1', 'RUN-2', 'DON-3', 'BAD-4', 'ASK-5', 'TOP-6'].map(hue)).toEqual(['gray', 'blue', 'green', 'red', 'red', 'red'])
+  })
+  // AC-32 (R-12, L-10; spec Known Gap 2): a 24-character id with a 59-minute worker age, the widest row (In progress and a 3-cell age)
+  const LONG24 = 'ABCDEFGHIJKLMNOPQRSTUVWX'
+  const longRow = async ($: any, on: On, cols: number) => {
+    const { rows } = await rowsWith($, on, [tk(LONG24, 'in progress', 'w-l')], { agents: [H_AGENT('w-l', 'running', 'scan long', 0, { statusSince: TUE_10 - 59 * MIN })], cols })
+    const text = rows[0]?.text ?? ''
+    return { text, id: /●\s+(\S+)/.exec(text)?.[1] ?? '', age: /\b59m\b/.test(text) }
+  }
+  // AC-32
+  test('A ticket row shows id, colored dot, state word and its worker\'s age (a 24-character id draws as its first 19 characters and an ellipsis at 44 columns)', async ($, on) => {
+    const { id, age } = await longRow($, on, 44)
+    expect({ id, age }).toEqual({ id: LONG24.slice(0, 19) + '…', age: true })
+  })
+  // AC-32: down to a 28-column pane the id keeps at least 7 characters and an ellipsis, and the age drops before the id goes below that
+  test('A ticket row shows id, colored dot, state word and its worker\'s age (the id keeps 7 characters and an ellipsis down to 28 columns; the age drops first)', async ($, on) => {
+    const seen: Record<number, { id: string; age: boolean }> = {}
+    for (const cols of [36, 30, 28]) {
+      const { id, age } = await longRow($, on, cols)
+      seen[cols] = { id, age }
+    }
+    expect(seen).toEqual({ 36: { id: LONG24.slice(0, 11) + '…', age: true }, 30: { id: LONG24.slice(0, 9) + '…', age: false }, 28: { id: LONG24.slice(0, 7) + '…', age: false } })
+  })
+  // AC-32: below that only the dot and the state word are asserted (the 17-cell floor is a 19-column pane)
+  test('A ticket row shows id, colored dot, state word and its worker\'s age (the dot and the state word are whole at 22 and 19 columns)', async ($, on) => {
+    const seen: Record<number, { dot: boolean; word: boolean }> = {}
+    for (const cols of [22, 19]) {
+      const { text } = await longRow($, on, cols)
+      seen[cols] = { dot: text.includes('●'), word: text.includes('In progress') }
+    }
+    expect(seen).toEqual({ 22: { dot: true, word: true }, 19: { dot: true, word: true } })
+  })
+  // AC-32
+  test('A ticket row shows id, colored dot, state word and its worker\'s age (no row is wider than the pane)', async ($, on) => {
+    const wider: number[] = []
+    for (const cols of [44, 36, 30, 28, 22, 19]) {
+      const { text } = await longRow($, on, cols)
+      if (!text.includes('ABCDEFG') || cellWidth(text) > cols - 2) wider.push(cols)
+    }
+    expect(wider).toEqual([])
+  })
+  const AGENTS33 = [H_AGENT('w-d', 'failed', 'job d', 0), H_AGENT('w-f', 'failed', 'job f', 1)]
+  // AC-33: the plan's six tickets; the 5-row cap (AC-36) shows the first five, then "+1 more" for the sixth
+  test('Ticket rows list attention first, then in progress, then the rest in report order', async ($, on) => {
+    const { rows } = await rowsWith($, on, [tk('A1-1', 'done'), tk('B1-2', 'planned'), tk('C1-3', 'in progress'), tk('D1-4', 'in progress', 'w-d'), tk('E1-5', 'in progress'), tk('F1-6', 'in progress', 'w-f')], { agents: AGENTS33 })
+    const order = ['D1-4', 'F1-6', 'C1-3', 'E1-5', 'A1-1'].map(id => rows.findIndex(r => has(r.text, id)))
+    expect({ order, total: rows.length }).toEqual({ order: [0, 1, 2, 3, 4], total: 5 })
+  })
+  // AC-33
+  test('Ticket rows list attention first, then in progress, then the rest in report order (the sixth ticket shows as +1 more)', async ($, on) => {
+    const { r, rows } = await rowsWith($, on, [tk('A1-1', 'done'), tk('B1-2', 'planned'), tk('C1-3', 'in progress'), tk('D1-4', 'in progress', 'w-d'), tk('E1-5', 'in progress'), tk('F1-6', 'in progress', 'w-f')], { agents: AGENTS33 })
+    expect({ hiddenPlanned: rows.some(x => has(x.text, 'B1-2')), more: await moreLine(r.ui) }).toEqual({ hiddenPlanned: false, more: '+1 more' })
+  })
+  // AC-33: with the planned ticket removed, the five rows end with A1-1 and no more line shows
+  test('Ticket rows list attention first, then in progress, then the rest in report order (five tickets, no more line)', async ($, on) => {
+    const { r, rows } = await rowsWith($, on, [tk('A1-1', 'done'), tk('C1-3', 'in progress'), tk('D1-4', 'in progress', 'w-d'), tk('E1-5', 'in progress'), tk('F1-6', 'in progress', 'w-f')], { agents: AGENTS33 })
+    expect({ order: ['D1-4', 'F1-6', 'C1-3', 'E1-5', 'A1-1'].map(id => rows.findIndex(x => has(x.text, id))), more: await moreLine(r.ui) }).toEqual({ order: [0, 1, 2, 3, 4], more: null })
+  })
+  // AC-33
+  test('Ticket rows list attention first, then in progress, then the rest in report order (the rest keep report order)', async ($, on) => {
+    const agents = [H_AGENT('w-d', 'failed', 'job d', 0), H_AGENT('w-f', 'failed', 'job f', 1)]
+    const { rows } = await rowsWith($, on, [tk('B1-2', 'planned'), tk('A1-1', 'done'), tk('C1-3', 'in progress'), tk('D1-4', 'in progress', 'w-d'), tk('F1-6', 'in progress', 'w-f')], { agents })
+    expect(['D1-4', 'F1-6', 'C1-3', 'B1-2', 'A1-1'].map(id => rows.findIndex(r => has(r.text, id)))).toEqual([0, 1, 2, 3, 4])
+  })
+  // AC-34
+  test('A ticket\'s worker and its rolled-up subagents get no child rows of their own', async ($, on) => {
+    const agents = [H_AGENT('w-a', 'running', 'job alpha', 0), F_rollup('w-sub', 'w-a', 'running', 'job sub', 1)]
+    const { rows } = await rowsWith($, on, [tk('AB-1', 'in progress', F_workerRef({ id: 'w-a' }))], { agents })
+    expect({ rows: rows.length, ticket: rows.some(r => has(r.text, 'AB-1') && !/alpha|sub/.test(r.text)), workers: rows.some(r => /alpha|sub/.test(r.text)) }).toEqual({ rows: 1, ticket: true, workers: false })
+  })
+  // AC-35: the two unclaimed workers' rows are the frozen baseline rows for those workers
+  test('Workers that belong to no ticket keep their child rows after the ticket rows', async ($, on) => {
+    const agents = [H_AGENT('w-a', 'running', 'job alpha', 0), H_AGENT('w-c', 'running', 'job beta', 1), H_AGENT('s3', 'failed', 'trim fixtures', 2), H_AGENT('s5', 'running', 'tidy shelf', 4)]
+    const { rows } = await rowsWith($, on, [tk('AB-1', 'in progress', 'w-a'), tk('CD-2', 'in progress', 'w-c')], { agents })
+    const frozen = BASE_ROWS.filter(t => /trim fixtures|tidy shelf/.test(t))
+    expect({ lead: rows.slice(0, 2).map(r => ['AB-1', 'CD-2'].some(id => has(r.text, id))), tail: rows.slice(2).map(r => spinnerless(r.text)) }).toEqual({ lead: [true, true], tail: frozen })
+  })
+  const unclaimed = [H_AGENT('u1', 'running', 'review docs', 10), H_AGENT('u2', 'running', 'lint pass', 11), H_AGENT('u3', 'running', 'trim fixtures', 12)]
+  // AC-36
+  test('Ticket rows and worker rows together show at most 5 rows then "+K more"', async ($, on) => {
+    const { r, rows } = await rowsWith($, on, [tk('A1-1', 'planned'), tk('B2-2', 'planned'), tk('C3-3', 'planned'), tk('D4-4', 'planned')], { agents: unclaimed })
+    expect({ rows: rows.length, more: await moreLine(r.ui) }).toEqual({ rows: 5, more: '+2 more' })
+  })
+  // AC-36
+  test('Ticket rows and worker rows together show at most 5 rows then "+K more" (seven tickets)', async ($, on) => {
+    const { r, rows } = await rowsWith($, on, Array.from({ length: 7 }, (_, i) => tk(uid(i), 'planned')))
+    expect({ rows: rows.length, more: await moreLine(r.ui) }).toEqual({ rows: 5, more: '+2 more' })
+  })
+  // AC-36
+  test('Ticket rows and worker rows together show at most 5 rows then "+K more" (five rows fit without a more line)', async ($, on) => {
+    const { r, rows } = await rowsWith($, on, [tk('A1-1', 'planned'), tk('B2-2', 'planned'), tk('C3-3', 'planned')], { agents: unclaimed.slice(0, 2) })
+    expect({ rows: rows.length, more: await moreLine(r.ui) }).toEqual({ rows: 5, more: null })
+  })
+  // AC-37
+  test('Pressing a ticket row opens its listed worker\'s transcript', async ($, on) => {
+    const world = mk({ agents: [H_AGENT('w-a', 'running', 'job alpha', 0)], views: [] })
+    const r = await rig($, on, { world })
+    await r.report([tk('AB-1', 'in progress', 'w-a'), tk('CD-2', 'planned'), tk('EF-3', 'in progress', 'w-gone')])
+    await r.redraw()
+    const found = (await r.ui.findAll({ type: 'Button' })).filter((b: any) => has(String(b.text ?? ''), 'AB-1'))
+    if (found.length === 1) await r.ui.press({ key: found[0].key })
+    expect({ buttons: found.length, opened: world.views }).toEqual({ buttons: 1, opened: [{ agentId: 'w-a' }] })
+  })
+  // AC-37 (R-14): a ticket with no worker, and one whose worker is not listed, draw no Button; a press on the row's text opens nothing.
+  // The harness raises a press only for a Button, so the press itself may be refused: the outcome asserted is that no transcript is opened.
+  test('Pressing a ticket row opens its listed worker\'s transcript (a row with no listed worker has no button and opens nothing)', async ($, on) => {
+    const world = mk({ agents: [H_AGENT('w-a', 'running', 'job alpha', 0)], views: [] })
+    const r = await rig($, on, { world })
+    await r.report([tk('AB-1', 'in progress', 'w-a'), tk('CD-2', 'planned'), tk('EF-3', 'in progress', 'w-gone')])
+    await r.redraw()
+    const buttons = (await r.ui.findAll({ type: 'Button' })).map((b: any) => String(b.text ?? ''))
+    const rowBoxes = (await r.ui.findAll({ type: 'Box' })).filter((b: any) => ROW_START.test(String(b.text ?? '')))
+    for (const id of ['CD-2', 'EF-3']) {
+      const box = rowBoxes.find((b: any) => has(String(b.text), id))
+      let first: any
+      walk(box, e => { if (first === undefined && e.type === 'Text') first = e })
+      if (first !== undefined) { try { await r.ui.press(first.key !== undefined ? { key: first.key } : { type: 'Text', text: first.text }) } catch { /* a press the harness refuses opens nothing, which is the outcome asserted below */ } }
+    }
+    expect({ rowsDrawn: ['CD-2', 'EF-3'].map(id => rowBoxes.some((b: any) => has(String(b.text), id))), buttons: ['CD-2', 'EF-3'].map(id => buttons.filter(t => has(t, id)).length), opened: world.views })
+      .toEqual({ rowsDrawn: [true, true], buttons: [0, 0], opened: [] })
+  })
+  // AC-38
+  test('A ticket whose named worker is not listed shows its reported state without age or attention', async ($, on) => {
+    const { rows } = await rowsWith($, on, [tk('AB-1', 'in progress', 'w-gone')])
+    const row = rowOfId(rows, 'AB-1')
+    expect({ state: /In progress/.test(row?.text ?? ''), noAge: row !== undefined && !/\b\d+[smhd]\b/.test(row.text), hue: row?.hue }).toEqual({ state: true, noAge: true, hue: 'blue' })
+  })
+  // AC-38
+  test('A ticket whose named worker is not listed shows its reported state without age or attention (bar segment)', async ($, on) => {
+    const { r } = await rowsWith($, on, [tk('AB-1', 'in progress', 'w-gone')])
+    expect(hues(await titleCells(r.ui))).toEqual(rep('blue', MAXBAR))
+  })
+  // AC-39
+  test('Ticket rows show without hovering over the card', async ($, on) => {
+    const { r, rows } = await rowsWith($, on, THREE)
+    const visible = await visibleRows(r.ui)
+    expect({ drawn: rows.length, visible: ['AB-1', 'CD-2', 'EF-3'].map(id => visible.filter(t => has(t, id)).length) }).toEqual({ drawn: 3, visible: [1, 1, 1] })
+  })
+  // AC-40
+  test('A one-line own card shows its ticket rows under it', async ($, on) => {
+    const r = await rig($, on, { world: mk({ store: new Map<string, unknown>([['setting:workingShelf', true]]) }), sessions: [S('own', { status: 'busy', sinceMs: 5 * MIN, title: TIT })] })
+    await r.report(THREE)
+    await r.redraw()
+    const rows = await drawnRows(r.ui)
+    expect({ oneLine: (await r.lines()).length, rows: ['AB-1', 'CD-2', 'EF-3'].map(id => rows.filter(t => has(t, id)).length) }).toEqual({ oneLine: 1, rows: [1, 1, 1] })
+  })
+  // AC-41
+  test('Without progress child rows list exactly as before', async ($, on) => {
+    const r = await rig($, on, { world: mk({ agents: SIX() }) })
+    expect({ rows: (await drawnRows(r.ui)).map(spinnerless), more: await moreLine(r.ui) }).toEqual({ rows: BASE_ROWS, more: SIX_WORKER_MORE })
+  })
+})
+
+// ================================================================ 6. Keeping and clearing a report
+describe('6. keeping and clearing a report', () => {
+  const reported = async ($: any, on: On) => {
+    const r = await rig($, on)
+    await r.report(THREE)
+    await r.redraw()
+    return r
+  }
+  /** `/clear` (R-9): session end with reason `clear` and the old id, then the id becomes `own-2` with NO session start; the next redraw (5 s) is the first draw after it. */
+  const cleared = async ($: any, on: On) => {
+    const r = await rig($, on, { sessions: [own()] })
+    await r.report(THREE)
+    await r.redraw()
+    const before = { count: countIn(await r.title()), rows: (await drawnRows(r.ui)).filter(t => THREE_IDS.some(id => has(t, id))).length }
+    const after = await F_lifecycle(r, { end: 'clear', from: 'own', to: 'own-2', sessions: [S('own-2', { title: TIT })] })
+    await after.redraw()
+    return { before, after }
+  }
+  // AC-42
+  test('Running /clear empties the ticket list and the card shows no progress', async ($, on) => {
+    const { before, after } = await cleared($, on)
+    expect({ before: before.count, count: countIn(await after.title('own-2')), bar: await hasBar(after.ui, 'own-2') }).toEqual({ before: '1/3', count: null, bar: false })
+  })
+  // AC-42
+  test('Running /clear empties the ticket list and the card shows no progress (read-back)', async ($, on) => {
+    const { after } = await cleared($, on)
+    expect(emptyReadback((await after.readback()).text, THREE_IDS)).toEqual(EMPTY_OK)
+  })
+  // AC-42: the old list is not carried over to the card of the session that follows /clear
+  test('Running /clear empties the ticket list and the card shows no progress (the old list is not on the next session\'s card)', async ($, on) => {
+    const { before, after } = await cleared($, on)
+    expect({ before, oldRows: (await drawnRows(after.ui)).filter(t => THREE_IDS.some(id => has(t, id))).length, count: countIn(await after.title('own-2')) })
+      .toEqual({ before: { count: '1/3', rows: 3 }, oldRows: 0, count: null })
+  })
+  // AC-42 + OA-1 (R-10, closes validation Known Gap 7): the conversation from before /clear is resumed (a new process, session start with the old id): its list was deleted at /clear
+  test('Running /clear empties the ticket list and the card shows no progress (resuming the conversation from before /clear shows none)', async ($, on) => {
+    const { before, after } = await cleared($, on)
+    const back = await remount(after, { selfName: 'own', sessions: [own()] })
+    expect({ before: before.count, count: countIn(await back.title()), bar: await hasBar(back.ui), ...emptyReadback((await back.readback()).text, THREE_IDS) })
+      .toEqual({ before: '1/3', count: null, bar: false, ...EMPTY_OK })
+  })
+  const resumed = async ($: any, on: On) => {
+    const r = await reported($, on)
+    return F_lifecycle(r, { end: 'prompt_input_exit' })
+  }
+  // AC-43
+  test('A resumed session shows its ticket progress again without a new report', async ($, on) => {
+    const back = await resumed($, on)
+    expect({ count: countIn(await back.title()), bar: await hasBar(back.ui) }).toEqual({ count: '1/3', bar: true })
+  })
+  // AC-43
+  test('A resumed session shows its ticket progress again without a new report (rows)', async ($, on) => {
+    const rows = await drawnRows((await resumed($, on)).ui)
+    expect(THREE_IDS.map(id => rows.filter(t => has(t, id)).length)).toEqual([1, 1, 1])
+  })
+  // AC-43 (R-16): an in-process /resume: session end with reason resume, the id switches to the resumed conversation's with no session start
+  test('A resumed session shows its ticket progress again without a new report (in-process resume shows the resumed conversation\'s list, not the previous one\'s)', async ($, on) => {
+    const sessions = [S('own-r', { title: TIT }), S('own', { title: TIT })]
+    const r = await rig($, on, { world: mk({ selfName: 'own-r' }), sessions })
+    await r.report([tk('XY-1', 'done'), tk('XY-2', 'planned')])
+    const mine = await remount(r, { selfName: 'own', sessions })
+    await mine.report(THREE)
+    await mine.redraw()
+    const before = countIn(await mine.title())
+    const after = await F_lifecycle(mine, { end: 'resume', from: 'own', to: 'own-r', sessions: [S('own-r', { title: TIT })] })
+    await after.redraw()
+    const rows = await drawnRows(after.ui)
+    expect({ before, count: countIn(await after.title('own-r')), previousRows: rows.filter(t => THREE_IDS.some(id => has(t, id))).length, resumedRows: rows.filter(t => has(t, 'XY-1') || has(t, 'XY-2')).length })
+      .toEqual({ before: '1/3', count: '0/2', previousRows: 0, resumedRows: 2 })
+  })
+  // AC-44: the two sessions share the store; each is its own session id
+  const twoSessions = async ($: any, on: On) => {
+    const sessions = [S('sessA', { title: TIT }), S('sessB', { title: TIT })]
+    const world = mk({ selfName: 'sessA' })
+    const a = await rig($, on, { world, sessions })
+    await a.report([tk('AA-1', 'done'), tk('AB-2', 'planned'), tk('AC-3', 'planned')])
+    const b = await remount(a, { selfName: 'sessB' })
+    await b.report([tk('BA-1', 'planned'), tk('BB-2', 'planned')])
+    const bRead = (await b.readback()).text
+    const backA = await remount(b, { selfName: 'sessA' })
+    await backA.redraw()
+    return { aRead: (await backA.readback()).text, bRead, aCount: countIn(await backA.title('sessA')), backA }
+  }
+  const A_IDS = ['AA-1', 'AB-2', 'AC-3']
+  const B_IDS = ['BA-1', 'BB-2']
+  // AC-44
+  test('A report in one session never changes another session\'s list', async ($, on) => {
+    const { aRead } = await twoSessions($, on)
+    expect({ own: A_IDS.every(id => has(aRead, id)), other: B_IDS.some(id => has(aRead, id)) }).toEqual({ own: true, other: false })
+  })
+  // AC-44
+  test('A report in one session never changes another session\'s list (the other session keeps its own two)', async ($, on) => {
+    const { bRead } = await twoSessions($, on)
+    expect({ own: B_IDS.every(id => has(bRead, id)), other: A_IDS.some(id => has(bRead, id)) }).toEqual({ own: true, other: false })
+  })
+  // AC-44
+  test('A report in one session never changes another session\'s list (the first card shows its own count)', async ($, on) => {
+    expect((await twoSessions($, on)).aCount).toBe('1/3')
+  })
+  // AC-44
+  test('A report in one session never changes another session\'s list (a forked resume starts empty)', async ($, on) => {
+    const { backA } = await twoSessions($, on)
+    backA.sessions.push(S('sessC', { title: TIT }))
+    const fork = await remount(backA, { selfName: 'sessC' })
+    expect(emptyReadback((await fork.readback()).text, [...A_IDS, ...B_IDS])).toEqual(EMPTY_OK)
+  })
+  // AC-45
+  test('After a Bridge reload the card shows the same ticket progress without a new report', async ($, on) => {
+    const r = await reported($, on)
+    const again = await remount(r)
+    expect({ count: countIn(await again.title()), bar: await hasBar(again.ui) }).toEqual({ count: '1/3', bar: true })
+  })
+  // AC-45
+  test('After a Bridge reload the card shows the same ticket progress without a new report (rows)', async ($, on) => {
+    const again = await remount(await reported($, on))
+    const rows = await drawnRows(again.ui)
+    expect(THREE_IDS.map(id => rows.filter(t => has(t, id)).length)).toEqual([1, 1, 1])
+  })
+  const compacted = async ($: any, on: On, trigger: string) => {
+    const r = await reported($, on)
+    await $.session.compact({ trigger, messages: [{ role: 'user', text: 'keep going', toolUses: [] }] } as never)
+    await r.redraw()
+    return r
+  }
+  // AC-46
+  test('Compacting the conversation keeps the ticket list (manual compact)', async ($, on) => {
+    expect(countIn(await (await compacted($, on, 'manual')).title())).toBe('1/3')
+  })
+  // AC-46
+  test('Compacting the conversation keeps the ticket list (automatic compact)', async ($, on) => {
+    expect(countIn(await (await compacted($, on, 'auto')).title())).toBe('1/3')
+  })
+  // AC-46
+  test('Compacting the conversation keeps the ticket list (read-back unchanged)', async ($, on) => {
+    const r = await compacted($, on, 'manual')
+    const back = (await r.readback()).text
+    expect(THREE_IDS.every(id => has(back, id))).toBe(true)
+  })
+})
+
+// ================================================================ 7. Waiting
+describe('7. waiting', () => {
   const running = () => [kid('scan alpha', 'working', 0)]
-  test('Owner whose session went idle while its workers run sees "Waiting" in green', async ($, on) => {
-    const agents = [H_AGENT('a1', 'running', 'scan alpha', 0)]
-    const { ui } = await mountPane($, on, [S('own', { status: 'idle' })], { agents })
-    expect(await ownStatus(ui)).toMatch(/Waiting/)
+  // AC-47
+  test('An idle or done own card with a running worker shows Waiting in green (idle)', async ($, on) => {
+    const r = await rig($, on, { world: mk({ agents: [H_AGENT('a1', 'running', 'scan alpha', 0)] }), sessions: [S('own', { status: 'idle' })] })
+    expect((await r.lines())[0]).toMatch(/Waiting/)
   })
-  test('Owner whose session went idle while its workers run sees "Waiting" in green (finished, unseen)', () => {
-    const v = view(running(), { finishedAt: NOW - MIN })
-    expect(plain(ownOf(v).lines[0]!)).toMatch(/Waiting/)
+  // AC-47
+  test('An idle or done own card with a running worker shows Waiting in green (done, unseen)', () => {
+    expect(statusOf(view(running(), { finishedAt: NOW - MIN }))).toMatch(/Waiting/)
   })
-  test('Owner whose session went idle while its workers run sees "Waiting" in green (drawn color)', () => {
+  // AC-47
+  test('An idle or done own card with a running worker shows Waiting in green (drawn color)', () => {
     const seg = ownOf(view(running())).lines[0]!.find(s => s.kind === 'text' && s.text.includes('Waiting'))
     expect(seg && seg.kind === 'text' ? hueOf(seg.color) : 'none').toBe('green')
   })
-  test('Owner sees Waiting with no tickets, one ticket or several, and with prefixes off', () => {
-    const words = [
-      view(running()), view([tk('WS-11', 'working', 0)]), view(tickets(3)), view(tickets(3), { prefixes: [] }),
-    ].map(v => /Waiting/.test(plain(ownOf(v).lines[0]!)))
-    expect(words).toEqual([true, true, true, true])
+  const rawWaiting = (status: string) =>
+    // AC-47
+    test(`An idle or done own card with a running worker shows Waiting in green (a worker listed as ${status})`, async ($, on) => {
+      const r = await rig($, on, { world: mk({ agents: [H_AGENT('a1', status, 'scan alpha', 0)] }), sessions: [S('own', { status: 'idle' })] })
+      expect((await r.lines())[0]).toMatch(/Waiting/)
+    })
+  rawWaiting('running')
+  rawWaiting('pending')
+  rawWaiting('waiting')
+  // AC-47
+  test('An idle or done own card with a running worker shows Waiting in green (snoozed card shows its time left)', () => {
+    const snoozed = statusOf(view(running(), { snoozedOpen: true, ownEntry: { snoozedUntil: NOW + 3 * HOUR, snoozedAt: NOW - HOUR } }))
+    expect({ waiting: /Waiting/.test(snoozed), timeLeft: /\d+[hm]/.test(snoozed) }).toEqual({ waiting: false, timeLeft: true })
   })
-  test('Owner whose only active worker needs them sees Needs you, not Waiting', () => {
-    const v = view([kid('ask alpha', 'needs-you', 0), kid('scan beta', 'done', 1)], { own: { childNeedAt: NOW - MIN } })
-    const line = plain(ownOf(v).lines[0]!)
+  // AC-47
+  test('An idle or done own card with a running worker shows Waiting in green (woken card shows Waiting)', () => {
+    const entry = { snoozedUntil: NOW - 5 * MIN, snoozedAt: NOW - HOUR, wokeAt: NOW - 2 * MIN }
+    const woken = statusOf(view(running(), { ownEntry: entry }))
+    const control = statusOf(view([], { ownEntry: entry }))
+    expect({ waiting: /Waiting/.test(woken), woke: /Woke/.test(woken), control: /Woke/.test(control) }).toEqual({ waiting: true, woke: false, control: true })
+  })
+  // AC-48
+  test('Waiting shows with or without a report', async ($, on) => {
+    const r = await rig($, on, { world: mk({ agents: [H_AGENT('a1', 'running', 'scan alpha', 0)] }), sessions: [S('own', { status: 'idle' })] })
+    expect({ waiting: /Waiting/.test((await r.lines())[0] ?? ''), count: countIn(await r.title()) }).toEqual({ waiting: true, count: null })
+  })
+  // AC-48
+  test('Waiting shows with or without a report (with a 2-ticket report)', async ($, on) => {
+    const r = await rig($, on, { world: mk({ agents: [H_AGENT('a1', 'running', 'scan alpha', 0)] }), sessions: [S('own', { status: 'idle' })] })
+    await r.report([tk('AB-1', 'in progress', 'a1'), tk('CD-2', 'planned')])
+    await r.redraw()
+    expect({ waiting: /Waiting/.test((await r.lines())[0] ?? ''), count: countIn(await r.title()) }).toEqual({ waiting: true, count: '0/2' })
+  })
+  // AC-49
+  test('A worker that needs you shows Needs you, not Waiting', () => {
+    const line = statusOf(view([kid('ask alpha', 'needs-you', 0), kid('scan beta', 'working', 1)], { own: { childNeedAt: NOW - MIN } }))
     expect({ needs: /Needs you/.test(line), waiting: /Waiting/.test(line) }).toEqual({ needs: true, waiting: false })
   })
-  test('Owner whose only active worker needs them sees Needs you, not Waiting (open question through the host)', async ($, on) => {
-    // The rolled-up Needs you comes from the worker's own open question, not from a field set on the card.
-    const world: World = { agents: [H_AGENT('a1', 'running', 'ask alpha', 0)] }
-    const { ui } = await mountPane($, on, [S('own', { status: 'idle' })], world)
-    await askFor($, world, 'a1')
-    const line = await ownStatus(ui)
-    expect({ needs: /Needs you/.test(line), waiting: /Waiting/.test(line) }).toEqual({ needs: true, waiting: false })
+  const keeps = (label: string, own: Partial<Session>, word: RegExp, expected: string) =>
+    // AC-50
+    test(`Waiting never replaces Working, Needs you, Failed, Background or Check? (${label})`, () => {
+      expect(word.exec(statusOf(view(running(), { own })))?.[0]).toBe(expected)
+    })
+  const task = [{ id: 'b1', kind: 'Command' as const, label: 'npm test', firstSeenAt: NOW - 30 * MIN }]
+  const ANY = /Working|Needs you|Failed|Background|Check\?|Waiting/
+  keeps('Working', { raw: 'busy', statusSince: NOW - 5 * MIN }, ANY, 'Working')
+  keeps('Needs you', { raw: 'waiting' }, ANY, 'Needs you')
+  keeps('Failed', { raw: 'failed' }, ANY, 'Failed')
+  keeps('Background', { background: task, isTurnOver: true, statusSince: NOW - 5 * MIN }, ANY, 'Background')
+  keeps('Check?', { background: task, isTurnOver: true, statusSince: NOW - 30 * MIN }, ANY, 'Check?')
+  // AC-51
+  test('When the last running worker finishes the card leaves Waiting within 5 seconds', async ($, on) => {
+    const world = mk({ agents: [H_AGENT('a1', 'running', 'scan alpha', 0), H_AGENT('a2', 'running', 'scan beta', 1)] })
+    const r = await rig($, on, { world, sessions: [S('own', { status: 'idle' })] })
+    world.agents = [H_AGENT('a1', 'completed', 'scan alpha', 0), H_AGENT('a2', 'running', 'scan beta', 1)]
+    await r.redraw()
+    expect(/Waiting/.test((await r.lines())[0] ?? '')).toBe(true)
   })
-  test('Owner sees Working, Needs you, Failed, Background and Check? kept while workers run', () => {
-    const task = [{ id: 'b1', kind: 'Command' as const, label: 'npm test', firstSeenAt: NOW - 30 * MIN }]
-    const word = (own: Partial<Session>) => /Working|Needs you|Failed|Background|Check\?|Waiting/.exec(plain(ownOf(view(running(), { own })).lines[0]!))?.[0]
-    expect([
-      word({ raw: 'busy', statusSince: NOW - 5 * MIN }),
-      word({ raw: 'waiting' }),
-      word({ raw: 'failed' }),
-      word({ background: task, isTurnOver: true, statusSince: NOW - 5 * MIN }),
-      word({ background: task, isTurnOver: true, statusSince: NOW - 30 * MIN }),
-    ]).toEqual(['Working', 'Needs you', 'Failed', 'Background', 'Check?'])
-  })
-  test('Owner sees Waiting end within one redraw of the last worker finishing', async ($, on) => {
-    const world: World = { agents: [H_AGENT('a1', 'running', 'scan alpha', 0)] }
-    const { ui, clock } = await mountPane($, on, [S('own', { status: 'idle' })], world)
-    const during = /Waiting/.test(await ownStatus(ui))
-    world.agents = [H_AGENT('a1', 'completed', 'scan alpha', 0)]
-    await redraw(clock, ui)
-    expect([during, /Waiting/.test(await ownStatus(ui))]).toEqual([true, false])
-  })
-  test('Owner sees Waiting end within one redraw of the last worker finishing (own session done)', async ($, on) => {
+  // AC-51
+  test('When the last running worker finishes the card leaves Waiting within 5 seconds (the last one finishes)', async ($, on) => {
     const sessions = [S('own', { status: 'busy' })]
-    const world: World = { agents: [H_AGENT('a1', 'running', 'scan alpha', 0)] }
-    const { ui, clock } = await mountPane($, on, sessions, world)
+    const world = mk({ agents: [H_AGENT('a1', 'running', 'scan alpha', 0), H_AGENT('a2', 'running', 'scan beta', 1)] })
+    const r = await rig($, on, { world, sessions })
     sessions[0]!.status = 'completed'
     sessions[0]!.sinceMs = -1000
-    await redraw(clock, ui)
-    const during = /Waiting/.test(await ownStatus(ui))
-    world.agents = [H_AGENT('a1', 'completed', 'scan alpha', 0)]
-    await redraw(clock, ui)
-    const after = await ownStatus(ui)
+    world.agents = [H_AGENT('a1', 'completed', 'scan alpha', 0), H_AGENT('a2', 'running', 'scan beta', 1)]
+    await r.redraw()
+    const during = /Waiting/.test((await r.lines())[0] ?? '')
+    world.agents = [H_AGENT('a1', 'completed', 'scan alpha', 0), H_AGENT('a2', 'completed', 'scan beta', 1)]
+    await r.redraw()
+    const after = (await r.lines())[0] ?? ''
     expect({ during, waiting: /Waiting/.test(after), done: /Done/.test(after) }).toEqual({ during: true, waiting: false, done: true })
   })
-  test('Owner sees a Waiting card stay on the shelf it would have when idle', () => {
-    const v = view(running(), { workingShelf: true })
-    const card = ownOf(v)
+  // AC-52
+  test('Waiting keeps the card on the shelf it would have with Done or Idle (idle)', () => {
+    const card = ownOf(view(running(), { workingShelf: true }))
     expect({ shelf: card.shelf, lines: card.lines.length, waiting: /Waiting/.test(plain(card.lines[0]!)) }).toEqual({ shelf: 'active', lines: 3, waiting: true })
   })
-  test('Owner sees a Waiting card stay on the shelf it would have when idle (idle for 7 hours)', () => {
-    const own = { statusSince: NOW - 7 * HOUR, activityAt: NOW - 7 * HOUR }
-    const without = ownOf(view([], { own, workingShelf: true, inactiveOpen: true }))
-    const withWorker = ownOf(view(running(), { own, workingShelf: true, inactiveOpen: true }))
+  // AC-52
+  test('Waiting keeps the card on the shelf it would have with Done or Idle (done, unseen)', () => {
+    const without = ownOf(view([], { finishedAt: NOW - MIN, workingShelf: true }))
+    const withWorker = ownOf(view(running(), { finishedAt: NOW - MIN, workingShelf: true }))
     expect({ shelf: withWorker.shelf, waiting: /Waiting/.test(plain(withWorker.lines[0]!)) }).toEqual({ shelf: without.shelf, waiting: true })
   })
-  test('Owner hears no sound when the card enters or leaves Waiting', async ($, on) => {
+  // AC-53
+  test('Entering or leaving Waiting rings no sound', async ($, on) => {
     const played: unknown[] = []
     on('audio.play', ($p, e) => (played.push((e as { clip: unknown }).clip), { value: undefined }) as never)
     const sessions = [S('own', { status: 'idle' })]
-    // Sound is on, and the pane is primed: the first 30-second cross-check has run, before which no chime can play at all.
-    const world: World = { agents: [], store: new Map<string, unknown>([['setting:sound', true]]) }
-    const { ui, clock } = await mountPane($, on, sessions, world)
-    await clock.advance(35_000); await ui.advance(35_000)
+    const world = mk({ agents: [], store: new Map<string, unknown>([['setting:sound', true]]) })
+    const r = await rig($, on, { world, sessions })
+    await r.clock.advance(35_000); await r.ui.advance(35_000)
     // Positive control: the same harness plays exactly one sound when the own card turns Needs you.
     sessions[0]!.status = 'waiting'
     sessions[0]!.sinceMs = -1000
-    await redraw(clock, ui)
+    await r.redraw()
     const control = played.length
     sessions[0]!.status = 'idle'
     sessions[0]!.sinceMs = 0
-    await redraw(clock, ui)
+    await r.redraw()
     world.agents = [H_AGENT('a1', 'running', 'scan alpha', 0)]
-    await redraw(clock, ui)
+    await r.redraw()
     world.agents = [H_AGENT('a1', 'completed', 'scan alpha', 0)]
-    await redraw(clock, ui)
+    await r.redraw()
     expect({ control, waitingChanges: played.length - control }).toEqual({ control: 1, waitingChanges: 0 })
   })
-  test('Owner whose session Claude Code reports as waiting for them still sees Needs you', () => {
-    const line = plain(ownOf(view(running(), { own: { raw: 'waiting' } })).lines[0]!)
+  // AC-54
+  test('A session Claude Code reports as waiting for you shows Needs you (with a running worker)', () => {
+    const line = statusOf(view(running(), { own: { raw: 'waiting' } }))
     expect({ needs: /Needs you/.test(line), waiting: /Waiting/.test(line) }).toEqual({ needs: true, waiting: false })
   })
-  test('Waiting vs snoozed and Woke', () => {
-    // R-27 (L-8): own idle with a running worker. (a) snoozed: the slot shows the time left, not Waiting. (b) woken: the slot reads Waiting, no Woke.
-    const snoozed = plain(ownOf(view(running(), { snoozedOpen: true, ownEntry: { snoozedUntil: NOW + 3 * HOUR, snoozedAt: NOW - HOUR } })).lines[0]!)
-    // Control for (b): the same woken card with no worker shows the Woke mark, so its absence below is the feature's doing.
-    const wokenEntry = { snoozedUntil: NOW - 5 * MIN, snoozedAt: NOW - HOUR, wokeAt: NOW - 2 * MIN }
-    const woken = plain(ownOf(view(running(), { ownEntry: wokenEntry })).lines[0]!)
-    const control = plain(ownOf(view([], { ownEntry: wokenEntry })).lines[0]!)
-    expect({ snoozed: [/Waiting/.test(snoozed), /\d+[hm]/.test(snoozed)], woken: [/Waiting/.test(woken), /Woke/.test(woken)], control: /Woke/.test(control) })
-      .toEqual({ snoozed: [false, true], woken: [true, false], control: true })
+  // AC-54
+  test('A session Claude Code reports as waiting for you shows Needs you (without a worker)', () => {
+    const line = statusOf(view([], { own: { raw: 'waiting' } }))
+    expect({ needs: /Needs you/.test(line), waiting: /Waiting/.test(line) }).toEqual({ needs: true, waiting: false })
   })
 })
 
-// ================================================================ 6. Other sessions (AC-46, AC-47)
-describe('6. other sessions', () => {
-  test('Owner sees ticket progress and ticket rows only on their own card', async ($, on) => {
-    const sessions = [S('own'), S('other', { title: 'WS-12 refactor' })]
-    const { ui } = await mountPane($, on, sessions, withPrefixes({ agents: THREE() }))
-    expect({ own: await ownCount(ui), other: countIn((await cardLines(ui, 'other')).join('\n')), rows: await hLeads(ui) }).toEqual({ own: '0/3', other: null, rows: ['WS-11', 'WS-12', 'APP-3'] })
+// ================================================================ 8. Other sessions
+describe('8. other sessions', () => {
+  /** The other session reports (it is the main conversation of its own session), then this session's pane mounts. */
+  const otherReported = async ($: any, on: On) => {
+    const sessions = [S('own', { title: TIT }), S('other', { cwd: '/q', title: 'Other work' })]
+    const world = mk({ selfName: 'other' })
+    const theirs = await rig($, on, { world, sessions })
+    await theirs.report([tk('AB-1', 'done'), tk('CD-2', 'planned'), tk('EF-3', 'planned')], 'EP-1')
+    const stored = has((await theirs.readback()).text, 'AB-1')
+    const mine = await remount(theirs, { selfName: 'own' })
+    await mine.redraw()
+    return { mine, stored }
+  }
+  // AC-55
+  test('Other sessions\' cards never show ticket progress', async ($, on) => {
+    const { mine, stored } = await otherReported($, on)
+    const line = await mine.title('other')
+    expect({ stored, bar: await hasBar(mine.ui, 'other'), count: countIn(line), chip: line.includes('◆'), rows: (await drawnRows(mine.ui)).filter(t => has(t, 'AB-1')).length })
+      .toEqual({ stored: true, bar: false, count: null, chip: false, rows: 0 })
   })
-  test('Owner sees ticket progress and ticket rows only on their own card (bar and rows on the other card)', () => {
-    const v = view(tickets(3), { others: [sess({ id: 'other', title: 'WS-12 refactor' })] })
-    const other = cardOf(v, c => !c.isSelected)
-    expect({ own: countOf(ownOf(v).lines[1]!), titled: hasTitle(other.lines[1]!), cells: barOf(other.lines[1]!).length, count: countOf(other.lines[1]!), rows: other.children === undefined })
-      .toEqual({ own: '0/3', titled: true, cells: 0, count: null, rows: true })
+  // AC-55
+  test('Other sessions\' cards never show ticket progress (the own card shows none either)', async ($, on) => {
+    const { mine, stored } = await otherReported($, on)
+    expect({ stored, bar: await hasBar(mine.ui), count: countIn(await mine.title()) }).toEqual({ stored: true, bar: false, count: null })
   })
-  test('Owner sees other cards keep exactly their usual status while own workers run', async ($, on) => {
+  // AC-56
+  test('Other sessions\' cards never show Waiting because of workers', async ($, on) => {
     const sessions = [S('own'), S('other', { status: 'idle' }), S('third', { status: 'completed', cwd: '/q' })]
-    const { ui } = await mountPane($, on, sessions, { agents: [H_AGENT('a1', 'running', 'scan alpha', 0)], selfName: 'own' })
-    const words = async (name: string) => /Waiting/.test(((await cardLines(ui, name))[0]) ?? '')
-    expect([await words('own'), await words('other'), await words('third')]).toEqual([true, false, false])
+    const r = await rig($, on, { world: mk({ agents: [H_AGENT('a1', 'running', 'scan alpha', 0)], selfName: 'own' }), sessions })
+    const waiting = async (name: string) => /Waiting/.test((await r.lines(name))[0] ?? '')
+    expect([await waiting('own'), await waiting('other'), await waiting('third')]).toEqual([true, false, false])
   })
 })
 
-// ================================================================ 7. Published text and permissions (AC-48, AC-49, TC-1, TC-2)
-describe('7. published text and permissions', () => {
-  test('Owner publishes Bridge with no mention of BB in the text this feature adds', async ($, on) => {
-    // The drawn pane (ticket progress and Waiting on, worker text with no BB in it) and the /bridge hint and messages hold no banned name.
-    const world: World = withPrefixes({ agents: THREE(), texts: [] })
-    const { ui } = await mountPane($, on, [S('own', { status: 'idle' })], world)
-    await $.command.run({ command: 'bridge', args: 'no-such-setting' } as never)
-    const texts = [...(await cardLines(ui)), ...(await drawnRows(ui)), ...(await allText(ui)), PANE_ARGS_HINT, ...(world.texts ?? [])]
-    const banned = /\bBB\b|getbb|bb-sidebar/
-    const shown = texts.some(t => /\d\/3/.test(t)) && texts.some(t => /Waiting/.test(t))
-    expect({ banned: texts.filter(t => banned.test(t)), shown }).toEqual({ banned: [], shown: true })
-  })
-  test('Owner publishes Bridge with no mention of BB in the text this feature adds (worker text untouched)', () => {
-    // Exclusion clause: displayed worker text is left alone, even when it names BB.
-    const v = view([kid('BB fix WS-11', 'working', 0), tk('WS-12', 'working', 1)])
-    expect(stripRow(rowText(v, 'WS-11'))).toMatch(/BB fix WS-11/)
-  })
-  // AC-48 S and AC-49 S run in tests/ws138-published-text.test.ts (Workspace root suite; this runner has no file read).
-  test('Owner turns on ticket progress and Waiting without a new permission or another tool', async ($, on) => {
-    // Which programs run over the whole flow (mount, `/bridge tickets WS-`, 13 redraws), not how often (R-15): the sorted distinct commands equal
-    // the distinct commands of the literal frozen from 6c505cf. The flow must have reached the feature's state (R-16).
-    const { log, ui } = await flowHostLog($, on)
-    const programs = log.filter(line => line.startsWith('process.run '))
-    expect({ programs: distinct(programs), reached: await flowReached(ui) })
-      .toEqual({ programs: distinct(FLOW_HOST_LOG.filter(line => line.startsWith('process.run '))), reached: { count: '0/2', waiting: true } })
-  })
-  test('(Technical Contract) Ticket progress and Waiting read no file and start no program beyond Bridge\'s existing ones', async ($, on) => {
-    // Which files and programs, not how often (R-15): the sorted distinct lines of every file, process and network call the host layer sees over the
-    // same flow equal the distinct lines of the literal frozen from 6c505cf, and every event name is one the literal has.
-    // `watching` is the control that the recorder saw the flow at all.
-    const { log, ui } = await flowHostLog($, on)
-    expect({ lines: distinct(log), newEvents: eventNames(log).filter(name => !eventNames(FLOW_HOST_LOG).includes(name)), watching: log.some(line => line.startsWith('process.run ')), reached: await flowReached(ui) })
-      .toEqual({ lines: distinct(FLOW_HOST_LOG), newEvents: [], watching: true, reached: { count: '0/2', waiting: true } })
-  })
-  // TC-2 runs in tests/ws138-published-text.test.ts (Workspace root suite; this runner has no file read).
-})
-
-// ================================================================ Spec compliance tests (promised by the plan)
-describe('spec compliance', () => {
-  test('Description before name (AC-07, Terms)', async ($, on) => {
-    // a1: description holds WS-1, name holds WS-2. a2: no description, so the name is searched. a3: neither, only a type id.
-    const agents = [
-      H_AGENT('a1', 'running', 'do WS-1 first', 0, { name: 'WS-2 helper' }),
-      H_AGENT('a2', 'running', '', 1, { description: undefined, name: 'plan WS-3 gamma' }),
-      H_AGENT('a3', 'running', '', 2, { description: undefined, name: undefined, type: 'WS-9-runner' }),
+// ================================================================ 9. Published text and permissions
+describe('9. published text and permissions', () => {
+  const BANNED = /\b(?:bb|getbb|bb-sidebar|helm|jira)\b/i
+  // AC-57 T: the tool's name, description and every answer; S: tests/ws138-published-text.test.ts
+  test('The fixed text this feature adds names no other tool or tracker', async ($, on) => {
+    const world = mk({ texts: [] })
+    const r = await rig($, on, { world })
+    const bad = (all: unknown, epic?: unknown) => F_call($, world, { all_tickets: all, ...(epic !== undefined ? { epic } : {}) })
+    const answers = [
+      (await r.report([tk('AB-1', 'done'), tk('CD-2', 'planned'), tk('EF-3', 'planned')])).text,
+      (await r.report([tk('CD-2', 'planned')])).text,
+      (await r.readback()).text,
+      (await F_report($, world, [tk('GH-4', 'planned')], undefined, 'a1')).text,
+      (await F_readback($, world, 'a1')).text,
+      (await F_call($, world, { read_back: true, all_tickets: [] })).text,
+      (await F_call($, world, { epic: 'EP-1' })).text,
+      (await bad('QX-9')).text,
+      (await bad(Array.from({ length: 201 }, (_, i) => wire(tk(uid(i), 'planned'))))).text,
+      (await bad(['QX-9'])).text,
+      (await bad([{ state: 'planned' }])).text,
+      (await bad([{ id: '', state: 'planned' }])).text,
+      (await bad([{ id: 'A'.repeat(23) + '-1', state: 'planned' }])).text,
+      (await bad([wire(tk('AB-1', 'planned')), wire(tk('AB-1', 'done'))])).text,
+      (await bad([{ id: 'QX-9' }])).text,
+      (await bad([{ id: 'QX-9', state: 'blocked' }])).text,
+      (await bad([{ id: 'QX-9', state: 'planned', worker: '   ' }])).text,
+      (await bad([wire(tk('QX-9', 'planned'))], '   ')).text,
+      (await bad([wire(tk('QX-9', 'planned'))], 'E'.repeat(25))).text,
+      (await r.report([])).text,
+      (await r.readback()).text,
     ]
-    const { ui } = await mountPane($, on, [S('own')], withPrefixes({ agents }))
-    expect({ count: await ownCount(ui), leads: (await hLeads(ui)).slice(0, 2) }).toEqual({ count: '0/2', leads: ['WS-1', 'WS-3'] })
+    // TODO(translator): AC-57 the store-failure refusal (R-11) needs a store that throws inside the tool call; the harness has no way to make `$.store.set` fail, so that one answer is not scanned.
+    const texts = [...world.tools!.flatMap(t => [t.name, t.description, JSON.stringify(t.inputSchema ?? {})]), ...answers, PANE_ARGS_HINT, ...(world.texts ?? [])]
+    expect({ banned: texts.filter(t => BANNED.test(t)), described: world.tools!.length === 1, answered: answers.every(a => a !== '') }).toEqual({ banned: [], described: true, answered: true })
   })
-  test('Kept finished workers count (AC-01)', async ($, on) => {
-    // The host drops the finished WS-12 worker from its list; Bridge keeps it, so the second ticket stays.
-    const world = withPrefixes({ agents: [H_AGENT('a1', 'running', 'scan WS-11 alpha', 0), H_AGENT('a2', 'completed', 'fix WS-12 beta', 1)] })
-    const { ui, clock } = await mountPane($, on, [S('own')], world)
-    const shown = await ownCount(ui)
-    world.agents = [H_AGENT('a1', 'running', 'scan WS-11 alpha', 0)]
-    await redraw(clock, ui)
-    expect({ shown, after: await ownCount(ui) }).toEqual({ shown: '1/2', after: '1/2' })
+  // AC-57: a ticket id such as HELM-1 is reported and drawn as given
+  test('The fixed text this feature adds names no other tool or tracker (a reported ticket id HELM-1 is drawn as reported)', async ($, on) => {
+    const r = await rig($, on)
+    await r.report([tk('HELM-1', 'planned'), tk('HELM-2', 'done')])
+    await r.redraw()
+    const rows = await drawnRows(r.ui)
+    expect({ rows: rows.filter(t => has(t, 'HELM-1')).length, chip: /^\s*HELM\b/.test(await r.title()) }).toEqual({ rows: 1, chip: true })
   })
-  test('Unicode boundaries and brackets (éWS-12, WS-12é, 「WS-12」, full-width digits)', () => {
-    // Only the bracketed id is a ticket (a letter or digit of any script glues an id; full-width digits are no digits): WS-12 and WS-13.
-    const v = view([kid('scan éWS-12 a', 'working', 0), kid('scan WS-12é b', 'working', 1), kid('scan 「WS-12」 c', 'working', 2), kid('scan WS-１２ d', 'working', 3), kid('scan WS-13 e', 'working', 4)])
-    expect(countOf(ownOf(v).lines[1]!)).toBe('0/2')
+  // AC-58: the README row is checked at the S layer (tests/ws138-published-text.test.ts); here the command's own messages
+  test('The /bridge tickets help text describes only the branch chip', async ($, on) => {
+    const world = mk({ texts: [] })
+    await rig($, on, { world })
+    const reply = await $.command.run({ command: 'bridge', args: 'tickets WS-' } as never)
+    const text = `${PANE_ARGS_HINT}\n${JSON.stringify(reply)}\n${(world.texts ?? []).join('\n')}`
+    expect({ mentionsBranchChipOnly: /Ticket prefixes: WS-/.test(text), progress: /progress|\bbar\b/i.test(text) }).toEqual({ mentionsBranchChipOnly: true, progress: false })
   })
-  test('Wide descriptions in ticket rows (emoji, CJK, Arabic) never exceed the pane and end in an ellipsis', () => {
-    const v = view([
-      kid(`scan WS-11 ${'日本語の説明'.repeat(8)}`, 'working', 0), kid(`fix WS-12 ${'😀'.repeat(30)}`, 'working', 1), kid(`plan WS-13 ${'مرحبا بالعالم '.repeat(8)}`, 'working', 2),
-    ])
-    const rows = rowsOf(v).map(r => plain(r.text))
-    expect({ leads: leads(v), fits: rows.every(t => cellWidth(t) <= 44), cut: rows.every(t => t.includes('…')) }).toEqual({ leads: ['WS-11', 'WS-12', 'WS-13'], fits: true, cut: true })
+  // AC-58: the hint and the reply name the branch chip
+  test('The /bridge tickets help text describes only the branch chip (names the branch chip in the hint)', async ($, on) => {
+    expect(/branch chip/i.test(PANE_ARGS_HINT)).toBe(true)
   })
-  test('Missing start time (Error)', async ($, on) => {
-    // Two workers have no start time; each starts when Bridge first listed it (R-12), here the same moment. WS-12 started an hour before:
-    // order WS-12, then WS-11 and WS-13 (same first-listed time, tie by id).
-    const agents = [
-      H_AGENT('a1', 'running', 'scan WS-11 alpha', 0, { startedAt: undefined }),
-      H_AGENT('a2', 'running', 'fix WS-12 beta', 1),
-      H_AGENT('a3', 'running', 'port WS-13 gamma', 2, { startedAt: undefined }),
-    ]
-    const { ui } = await mountPane($, on, [S('own')], withPrefixes({ agents }))
-    expect({ count: await ownCount(ui), leads: await hLeads(ui) }).toEqual({ count: '0/3', leads: ['WS-12', 'WS-11', 'WS-13'] })
+  // AC-58
+  test('The /bridge tickets help text describes only the branch chip (names the branch chip in the reply)', async ($, on) => {
+    const world = mk({ texts: [] })
+    await rig($, on, { world })
+    const reply = await $.command.run({ command: 'bridge', args: 'tickets WS-' } as never)
+    expect(/branch chip/i.test(`${JSON.stringify(reply)}\n${(world.texts ?? []).join('\n')}`)).toBe(true)
+  })
+  // AC-59
+  test('Using the ticket tool asks for no permission and Waiting needs no other tool', async ($, on) => {
+    const r = await rig($, on)
+    const checked = await $.tool.check({ tool: toolOf(r.world), input: { all_tickets: [] } } as never)
+    expect((checked as { decision?: string }).decision).toBe('allow')
+  })
+  // AC-59
+  test('Using the ticket tool asks for no permission and Waiting needs no other tool (no other program is needed)', async ($, on) => {
+    const world = mk({ agents: [H_AGENT('a1', 'running', 'scan alpha', 0)], refuseOtherPrograms: true })
+    const r = await rig($, on, { world, sessions: [S('own', { status: 'idle', title: TIT })] })
+    const a = (await r.report([tk('AB-1', 'in progress', 'a1'), tk('CD-2', 'planned')])).text
+    await r.redraw()
+    expect({ accepted: /accept/i.test(a), count: countIn(await r.title()), waiting: /Waiting/.test((await r.lines())[0] ?? '') }).toEqual({ accepted: true, count: '0/2', waiting: true })
   })
 })
 
 // ================================================================ Edge cases
-// VS Code extension edge: not compiled here; the plan lists it under "Checks that stay out of the compiled runner" (the adapter harness in
-// tests/adapters.test.ts draws the same shared card renderer, and the only VS Code-specific outcome, rows without hover, is AC-34 above).
 describe('edge cases', () => {
-  test('Ingress: cold pane open', async ($, on) => {
-    const { ui } = await mountPane($, on, [S('own', { status: 'idle' })], withPrefixes({ agents: [H_AGENT('a1', 'running', 'scan WS-11 alpha', 0), H_AGENT('a2', 'running', 'fix WS-12 beta', 1)] }))
-    expect({ count: await ownCount(ui), leads: await hLeads(ui), waiting: /Waiting/.test(await ownStatus(ui)) }).toEqual({ count: '0/2', leads: ['WS-11', 'WS-12'], waiting: true })
+  // Orchestrator never reports: AC-11 fixture with a running worker and an idle own card
+  test('Edge: the orchestrator never reports; no progress shows and Waiting shows', async ($, on) => {
+    const r = await rig($, on, { world: withPrefixes({ agents: [H_AGENT('a1', 'running', 'fix WS-11 alpha', 0), H_AGENT('a2', 'running', 'fix WS-12 beta', 1)] }), sessions: [S('own', { status: 'idle', title: TIT })] })
+    expect({ count: countIn(await r.title()), bar: await hasBar(r.ui), waiting: /Waiting/.test((await r.lines())[0] ?? '') }).toEqual({ count: null, bar: false, waiting: true })
   })
-  test('Ticket prefixes changed mid-session', async ($, on) => {
-    const agents = [H_AGENT('a1', 'running', 'scan WS-11 alpha', 0), H_AGENT('a2', 'running', 'fix WS-12 beta', 1)]
-    const world: World = { agents, store: new Map<string, unknown>([['setting:tickets', ['APP-']]]) }
-    const { ui, clock } = await mountPane($, on, [S('own')], world)
-    const before = await ownCount(ui)
+  const shared = async ($: any, on: On, second: string) => {
+    const world = mk({ agents: [H_AGENT('w-a', 'running', 'carry tickets', 0, { statusSince: TUE_10 - 4 * MIN })] })
+    const r = await rig($, on, { world })
+    await r.report([tk('AB-1', 'in progress', 'w-a'), tk('CD-2', 'in progress', 'w-a')])
+    await r.redraw()
+    if (second === 'failed') {
+      world.agents = [H_AGENT('w-a', 'failed', 'carry tickets', 0, { statusSince: TUE_10 - 4 * MIN })]
+      await r.redraw()
+    }
+    return rowInfo(r.ui)
+  }
+  // Edge: one worker named by two tickets
+  test('Edge: one worker named by two tickets; both rows show its age', async ($, on) => {
+    const rows = await shared($, on, 'running')
+    expect(['AB-1', 'CD-2'].map(id => /\b4m\b/.test(rowOfId(rows, id)?.text ?? ''))).toEqual([true, true])
+  })
+  // Edge: one worker named by two tickets
+  test('Edge: one worker named by two tickets; both turn Failed and red when it fails', async ($, on) => {
+    const rows = await shared($, on, 'failed')
+    expect(['AB-1', 'CD-2'].map(id => [/Failed/.test(rowOfId(rows, id)?.text ?? ''), rowOfId(rows, id)?.hue])).toEqual([[true, 'red'], [true, 'red']])
+  })
+  // Edge "named worker matches several listed workers": closed at the unit layer (R-1, 'unit rules: the ticket model').
+  // TODO(translator): edge "no signal for a usage-limit stop" and edge "worker stopped by a usage limit" (R-6): plan Open Questions row 4 is open, so no usage-limit signal is locked; a failed worker already counts as attention (AC-18, AC-32).
+  // Edge: a report names a forgotten worker (more than 20 finished)
+  test('Edge: a report names a worker the pane has forgotten; the row shows its reported state without age and is not red', async ($, on) => {
+    const agents = Array.from({ length: 21 }, (_, i) => H_AGENT(`w-${i}`, i === 0 ? 'failed' : 'completed', `old job ${i}`, i))
+    const world = mk({ agents })
+    const r = await rig($, on, { world })
+    await r.report([tk('AB-1', 'in progress', 'w-0')])
+    await r.redraw()
+    const row = rowOfId(await rowInfo(r.ui), 'AB-1')
+    expect({ state: /In progress/.test(row?.text ?? ''), noAge: row !== undefined && !/\b\d+[smhd]\b/.test(row.text), hue: row?.hue }).toEqual({ state: true, noAge: true, hue: 'blue' })
+  })
+  // Edge: worker fails, ticket reported done (NH-14 asserts the row)
+  // Edge: worker stopped by the person
+  test('NH-12 A worker the person stopped (killed) does not put its ticket in attention', async ($, on) => {
+    const world = mk({ agents: [H_AGENT('w-a', 'killed', 'job alpha', 0)] })
+    const r = await rig($, on, { world })
+    await r.report([tk('AB-1', 'in progress', 'w-a')])
+    await r.redraw()
+    const row = rowOfId(await rowInfo(r.ui), 'AB-1')
+    expect({ word: /In progress/.test(row?.text ?? ''), hue: row?.hue, bar: hues(await titleCells(r.ui)) }).toEqual({ word: true, hue: 'blue', bar: rep('blue', MAXBAR) })
+  })
+  // Edge: every ticket done and no worker running
+  test('Edge: every ticket done and no worker running; bar all green, count total/total, status Done', async ($, on) => {
+    const sessions = [S('own', { status: 'busy', title: TIT })]
+    const r = await rig($, on, { sessions })
+    await r.report([tk('AB-1', 'done'), tk('CD-2', 'done'), tk('EF-3', 'done')])
+    sessions[0]!.status = 'completed'
+    sessions[0]!.sinceMs = -1000
+    await r.redraw()
+    const first = (await r.lines())[0] ?? ''
+    expect({ bar: hues(await titleCells(r.ui)), count: countIn(await r.title()), done: /Done/.test(first), waiting: /Waiting/.test(first) })
+      .toEqual({ bar: rep('green', MAXBAR), count: '3/3', done: true, waiting: false })
+  })
+  // Edge: every ticket done; the list stays
+  test('Edge: every ticket done and no worker running; the read-back still lists the three tickets', async ($, on) => {
+    const r = await rig($, on)
+    await r.report([tk('AB-1', 'done'), tk('CD-2', 'done'), tk('EF-3', 'done')])
+    await r.redraw()
+    const back = (await r.readback()).text
+    expect(['AB-1', 'CD-2', 'EF-3'].every(id => has(back, id))).toBe(true)
+  })
+  // Edge: the worker list cannot be read on a redraw
+  test('Edge: the worker list cannot be read on a redraw; Waiting stays and the ticket list is unchanged', async ($, on) => {
+    const world = mk({ agents: [H_AGENT('w-a', 'running', 'job alpha', 0, { statusSince: TUE_10 - 7 * MIN })] })
+    const r = await rig($, on, { world, sessions: [S('own', { status: 'idle', title: TIT })] })
+    await r.report([tk('AB-1', 'in progress', 'w-a'), tk('CD-2', 'planned')])
+    await r.redraw()
+    world.agentsFail = true
+    await r.redraw()
+    expect({ waiting: /Waiting/.test((await r.lines())[0] ?? ''), count: countIn(await r.title()), red: hues(await titleCells(r.ui)).includes('red') }).toEqual({ waiting: true, count: '0/2', red: false })
+  })
+  // Edge: the worker list cannot be read on a redraw; age keeps counting
+  test('Edge: the worker list cannot be read on a redraw; the age keeps counting', async ($, on) => {
+    const world = mk({ agents: [H_AGENT('w-a', 'running', 'job alpha', 0, { statusSince: TUE_10 - 7 * MIN })] })
+    const r = await rig($, on, { world })
+    await r.report([tk('AB-1', 'in progress', 'w-a')])
+    await r.redraw()
+    world.agentsFail = true
+    for (let i = 0; i < 12; i++) await r.redraw()
+    expect(/\b8m\b/.test(rowOfId(await rowInfo(r.ui), 'AB-1')?.text ?? '')).toBe(true)
+  })
+  // Edge: two sessions report at once (interleaved)
+  test('Edge: two sessions report at once; each read-back is its own last report', async ($, on) => {
+    const sessions = [S('sessA', { title: TIT }), S('sessB', { title: TIT })]
+    const a = await rig($, on, { world: mk({ selfName: 'sessA' }), sessions })
+    await a.report([tk('AA-1', 'planned')])
+    const b = await remount(a, { selfName: 'sessB' })
+    await b.report([tk('BA-1', 'planned')])
+    const a2 = await remount(b, { selfName: 'sessA' })
+    await a2.report([tk('AA-2', 'planned')])
+    const b2 = await remount(a2, { selfName: 'sessB' })
+    await b2.report([tk('BA-2', 'planned')])
+    const bRead = (await b2.readback()).text
+    const aRead = (await (await remount(b2, { selfName: 'sessA' })).readback()).text
+    expect({ a: [has(aRead, 'AA-2'), has(aRead, 'AA-1'), has(aRead, 'BA-2')], b: [has(bRead, 'BA-2'), has(bRead, 'BA-1'), has(bRead, 'AA-2')] })
+      .toEqual({ a: [true, false, false], b: [true, false, false] })
+  })
+  // Edge: two reports in one turn
+  test('Edge: two reports in one turn are both accepted and the last one stands', async ($, on) => {
+    const r = await rig($, on)
+    const first = await r.report([tk('AB-1', 'planned')])
+    const second = await r.report([tk('CD-2', 'planned'), tk('EF-3', 'planned')])
+    const back = (await r.readback()).text
+    expect({ both: [/accept/i.test(first.text), /accept/i.test(second.text)], last: [has(back, 'CD-2'), has(back, 'EF-3'), has(back, 'AB-1')] }).toEqual({ both: [true, true], last: [true, true, false] })
+  })
+  // R-17: two reports started without awaiting the first (the calls are serialized, L-4)
+  test('Edge: two reports started together; the second reads the list the first wrote', async ($, on) => {
+    const r = await rig($, on)
+    const [first, second] = await Promise.all([r.report([tk('AB-1', 'planned'), tk('CD-2', 'planned')]), r.report([tk('CD-2', 'planned')])])
+    const back = (await r.readback()).text
+    expect({ first: first.text.split('\n')[0], removed: partsOf(second.text).open, back: [has(back, 'CD-2'), has(back, 'AB-1')] }).toEqual({ first: 'Accepted: 2 tickets.', removed: ['AB-1'], back: [true, false] })
+  })
+  // Standard category Empty: a report with an empty worker list
+  test('Edge: a report with an empty worker list shows reported states without age and no Waiting', async ($, on) => {
+    const r = await rig($, on, { sessions: [S('own', { status: 'idle', title: TIT })] })
+    await r.report([tk('AB-1', 'in progress', 'w-gone'), tk('CD-2', 'done')])
+    await r.redraw()
+    const rows = await rowInfo(r.ui)
+    expect({ words: [/In progress/.test(rowOfId(rows, 'AB-1')?.text ?? ''), /Done/.test(rowOfId(rows, 'CD-2')?.text ?? '')], age: rows.some(row => /\b\d+[smhd]\b/.test(row.text)), waiting: /Waiting/.test((await r.lines())[0] ?? '') })
+      .toEqual({ words: [true, true], age: false, waiting: false })
+  })
+  // Standard category Unicode-RTL: wide and right-to-left ids
+  const wideRow = (label: string, id: string) =>
+    test(`Edge: a 24-character ${label} id is accepted and its row is cut by cell width with an ellipsis`, async ($, on) => {
+      const r = await rig($, on)
+      const a = await r.report([tk(id, 'planned')])
+      await r.redraw()
+      const row = (await rowInfo(r.ui))[0]?.text ?? ''
+      expect({ accepted: /accept/i.test(a.text), fits: row !== '' && cellWidth(row) <= 44, cut: row.includes('…') }).toEqual({ accepted: true, fits: true, cut: true })
+    })
+  wideRow('CJK', '日本語のチケット番号'.repeat(3).slice(0, 24))
+  wideRow('right-to-left', 'مرحبا بالعالم الجميل جدا'.slice(0, 24))
+})
+
+// ================================================================ Regression
+describe('regression', () => {
+  const THREE_WORKERS = (): unknown[] => [H_AGENT('a1', 'running', 'scan WS-11 alpha', 0), H_AGENT('a2', 'running', 'fix WS-12 beta', 1), H_AGENT('a3', 'running', 'port APP-3 gamma', 2)]
+  const flow = async ($: any, on: On, reports: boolean) => {
+    const world: World = mk({ agents: THREE_WORKERS(), host: [] })
+    const r = await rig($, on, { world, sessions: [S('own')] })
     await $.command.run({ command: 'bridge', args: 'tickets WS-' } as never)
-    await redraw(clock, ui)
-    expect({ before, after: await ownCount(ui) }).toEqual({ before: null, after: '0/2' })
+    if (reports) await r.report([tk('WS-11', 'in progress', 'a1'), tk('WS-12', 'in progress', 'a2'), tk('APP-3', 'in progress', 'a3')])
+    for (let i = 0; i < 13; i++) await r.redraw()
+    return { log: [...world.host!].sort(), count: countIn(await r.title()), waiting: /Waiting/.test((await r.lines())[0] ?? '') }
+  }
+  const distinct = (lines: readonly string[]) => [...new Set(lines)].sort()
+  // Regression: host calls without a report equal the frozen log (the flow reached: no progress without a report, Waiting)
+  test('Regression: the host calls without a report equal the frozen pre-feature log', async ($, on) => {
+    const { log, count, waiting } = await flow($, on, false)
+    expect({ lines: distinct(log), count, waiting }).toEqual({ lines: distinct(FLOW_HOST_LOG), count: null, waiting: true })
   })
-  test('More than 20 finished workers', () => {
-    // The 22nd-oldest finished worker is forgotten by the host list and by Bridge's 20-worker cap: WS-1 has no worker left.
-    const old = [tk('WS-1', 'done', 0, 'a'), tk('WS-1', 'done', 1, 'b')]
-    const rest = Array.from({ length: 20 }, (_, i) => tk(i % 2 ? 'WS-2' : 'WS-3', 'done', 5 + i, `n${i}`))
-    const kept = [...old, ...rest].slice(2)
-    const before = countOf(ownOf(view([...old, ...rest])).lines[1]!)
-    expect({ before, after: countOf(ownOf(view(kept)).lines[1]!) }).toEqual({ before: '3/3', after: '2/2' })
-  })
-  test('A ticket\'s earliest worker is forgotten', () => {
-    const both = [tk('WS-11', 'done', 0, 'old'), tk('WS-12', 'working', 2), tk('WS-11', 'working', 5, 'new')]
-    const forgotten = both.slice(1)
-    expect([leads(view(both)), leads(view(forgotten))]).toEqual([['WS-11', 'WS-12'], ['WS-12', 'WS-11']])
-  })
-  test('Two workers of different tickets started at the same moment', () => {
-    // Drawn twice, with the worker list in opposite orders: the tie order is the same on both redraws.
-    const listed = [tk('WS-15', 'working', 3), tk('WS-12', 'working', 3), tk('WS-13', 'working', 6)]
-    expect([leads(view(listed)), leads(view([...listed].reverse()))]).toEqual([['WS-12', 'WS-15', 'WS-13'], ['WS-12', 'WS-15', 'WS-13']])
-  })
-  test('Two workers of one ticket started at the same moment', () => {
-    const v = view([kid('WS-11 first', 'done', 4), kid('WS-11 second', 'failed', 4), tk('WS-12', 'working', 6)])
-    expect({ dot: dotHue(rowFor(v, 'WS-11')?.text), text: stripRow(rowText(v, 'WS-11')).includes('second') }).toEqual({ dot: 'red', text: true })
-  })
-  test('Newest worker Working while an older one failed', () => {
-    const v = view([kid('scan WS-11 old', 'failed', 0), kid('scan WS-11 new', 'working', 4), tk('WS-12', 'done', 5)])
-    expect(runsOf(barOf(ownOf(v).lines[1]!))).toEqual(['yellow', 'green'])
-  })
-  test('Every ticket Done and no worker running', () => {
-    const v = view(tickets(3, 'done'))
-    const line = ownOf(v).lines[1]!
-    expect({ count: countOf(line), hues: [...new Set(barOf(line))], waiting: /Waiting/.test(plain(ownOf(v).lines[0]!)) }).toEqual({ count: '3/3', hues: ['green'], waiting: false })
-  })
-  test('Waiting card keeps its full form with the Working shelf on', () => {
-    // Working shelf on, own idle with a running worker: the card stays a full three-line card on the Active shelf (AC-43) and Waiting is in its
-    // status slot. A one-line card never shows Waiting (the one-line form holds only Working cards, AC-41): see the plan's Known Gaps.
-    const card = ownOf(view([kid('scan alpha', 'working', 0)], { workingShelf: true }))
-    expect({ lines: card.lines.length, waiting: /Waiting/.test(plain(card.lines[0]!)) }).toEqual({ lines: 3, waiting: true })
-  })
-  test('Worker list cannot be read on a redraw', async ($, on) => {
-    const world: World = withPrefixes({ agents: THREE() })
-    const { ui, clock } = await mountPane($, on, [S('own')], world)
-    // The own card is idle with three running workers, so it reads Waiting; a failed read of the list changes none of the three.
-    const state = async () => ({ count: await ownCount(ui), rows: (await hLeads(ui)).length, waiting: /Waiting/.test(await ownStatus(ui)) })
-    const before = await state()
-    world.agentsFail = true
-    await redraw(clock, ui)
-    const afterOne = await state()
-    // No time limit: three more failed redraws change nothing either (L-10).
-    for (let i = 0; i < 3; i++) await redraw(clock, ui)
-    const same = { count: '0/3', rows: 3, waiting: true }
-    expect({ before, afterOne, afterFour: await state() }).toEqual({ before: same, afterOne: same, afterFour: same })
-  })
-  test('Failed read, prefixes off', async ($, on) => {
-    // R-24: prefixes off, own busy, three running workers with pinned start times (the clock is mocked, so no age text changes across the redraws).
-    const world: World = { agents: [H_AGENT('a1', 'running', 'scan alpha', 0), H_AGENT('a2', 'running', 'fix beta', 1), H_AGENT('a3', 'running', 'port gamma', 2)] }
-    const { ui, clock } = await mountPane($, on, [S('own', { status: 'busy' })], world)
-    const first = await drawnRows(ui)
-    world.agentsFail = true
-    await redraw(clock, ui)
-    const failed = await drawnRows(ui)
-    for (let i = 0; i < 3; i++) await redraw(clock, ui)
-    const stillFailed = await drawnRows(ui)
-    // A read that succeeds with an empty list still clears the running workers.
-    world.agentsFail = false
-    world.agents = []
-    await redraw(clock, ui)
-    expect({ shown: first.length, failed: failed.join('\n'), stillFailed: stillFailed.join('\n'), cleared: (await drawnRows(ui)).length })
-      .toEqual({ shown: 3, failed: first.join('\n'), stillFailed: first.join('\n'), cleared: 0 })
-  })
-  test('Question during a failed read', async ($, on) => {
-    // R-25: workers running, the list read fails, then a worker raises a permission question: the own card reads Needs you on the next redraw,
-    // and the child rows stay as last read until a read succeeds.
-    const world: World = withPrefixes({ agents: THREE() })
-    const { ui, clock } = await mountPane($, on, [S('own')], world)
-    const rows = await drawnRows(ui)
-    world.agentsFail = true
-    await redraw(clock, ui)
-    await askFor($, world, 'a1')
-    await redraw(clock, ui)
-    expect({ needs: /Needs you/.test(await ownStatus(ui)), rows: (await drawnRows(ui)).join('\n') }).toEqual({ needs: true, rows: rows.join('\n') })
-  })
-  test('Stopped worker', () => {
-    // R-21: a Stopped newest worker shows its age only (no word), on the child row and on the ticket row; the bar segment is gray; the ticket is Stopped.
-    const kids = [tk('WS-11', 'working', 0), kid('plan WS-12 old', 'done', 1, 30), kid('stop WS-12 new', 'idle', 5, 3)]
-    const ticketRow = stripRow(rowText(view(kids), 'WS-12'))
-    const childRow = stripRow(plain(rowsOf(view(kids, { prefixes: [] })).find(r => plain(r.text).includes('stop WS-12 new'))?.text ?? []))
-    expect({
-      ticket: [/\s3m\s*$/.test(ticketRow), /Idle|Stopped/.test(ticketRow)],
-      child: [/\s3m\s*$/.test(childRow), /Idle|Stopped/.test(childRow)],
-      dot: dotHue(rowFor(view(kids), 'WS-12')?.text),
-      bar: runsOf(barOf(ownOf(view(kids)).lines[1]!)),
-    }).toEqual({ ticket: [true, false], child: [true, false], dot: 'gray', bar: ['yellow', 'gray'] })
-  })
-  test('Session resumed with workers already running', async ($, on) => {
-    const { ui } = await mountPane($, on, [S('own', { status: 'idle' })], withPrefixes({ agents: THREE() }))
-    expect([/Waiting/.test(await ownStatus(ui)), await ownCount(ui)]).toEqual([true, '0/3'])
+  // Regression: host calls with a report equal the frozen log (the flow reached: progress and Waiting)
+  test('Regression: the host calls with a report equal the frozen pre-feature log', async ($, on) => {
+    const { log, count, waiting } = await flow($, on, true)
+    expect({ lines: distinct(log), count, waiting }).toEqual({ lines: distinct(FLOW_HOST_LOG), count: '0/3', waiting: true })
   })
 })
 
-// ================================================================ Null hypothesis (NH-1 to NH-14)
+// ================================================================ Null hypothesis
 describe('null hypothesis', () => {
-  test('NH-1 Owner with prefixes off and two ids in worker text sees no ticket progress', () => {
-    const v = view([tk('WS-11', 'working', 0), tk('WS-12', 'working', 1)], { prefixes: [] })
-    expect({ count: countOf(ownOf(v).lines[1]!), titled: hasTitle(ownOf(v).lines[1]!), bar: barOf(ownOf(v).lines[1]!).length, rows: rowsOf(v).length }).toEqual({ count: null, titled: true, bar: 0, rows: 2 })
+  /** R-7: the store already holds a report `ageMs` old when the session starts. */
+  const sevenDays = ($: any, on: On, ageMs: number) => rig($, on, { world: withRecord('own', THREE, TUE_10 - ageMs) })
+  const none = async (r: Rig) => ({ bar: await hasBar(r.ui), count: countIn(await r.title()), rows: (await drawnRows(r.ui)).filter(t => /[A-Z]{2}-\d/.test(t)).length })
+  // NH-1
+  test('NH-1 No report in the session: no bar, count, group chip or ticket rows', async ($, on) => {
+    const r = await rig($, on, { world: mk({ agents: [H_AGENT('a1', 'running', 'review docs', 0), H_AGENT('a2', 'completed', 'lint pass', 1)] }) })
+    expect(await none(r)).toEqual({ bar: false, count: null, rows: 0 })
   })
-  test('NH-2 Owner with only one ticket among many workers sees no ticket progress', () => {
-    const v = view([tk('WS-11', 'working', 0, 'a'), tk('WS-11', 'working', 1, 'b'), tk('WS-11', 'done', 2, 'c'), tk('WS-11', 'working', 3, 'd')])
-    expect({ count: countOf(ownOf(v).lines[1]!), rows: rowsOf(v).length }).toEqual({ count: null, rows: 4 })
+  // NH-2
+  test('NH-2 Workers named after tickets and no report, prefixes set: no progress', async ($, on) => {
+    const agents = [H_AGENT('a1', 'running', 'fix WS-11', 0), H_AGENT('a2', 'running', 'WS-12 build', 1), H_AGENT('a3', 'running', 'scan WS-14', 2)]
+    expect(await none(await rig($, on, { world: withPrefixes({ agents }) }))).toEqual({ bar: false, count: null, rows: 0 })
   })
-  test('NH-3 Owner whose workers name no ticket sees no ticket progress', () => {
-    const v = view([kid('review docs', 'working', 0), kid('lint pass', 'working', 1), kid('trim fixtures', 'done', 2)])
-    expect({ count: countOf(ownOf(v).lines[1]!), rows: rowsOf(v).length }).toEqual({ count: null, rows: 3 })
+  // NH-3
+  test('NH-3 A refused report leaves the card identical to the redraw before it', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(THREE)
+    await r.redraw()
+    const before = { lines: await r.lines(), rows: await drawnRows(r.ui) }
+    await F_reportRaw($, r.world, [{ id: 'QX-9', state: 'blocked' }])
+    await r.redraw()
+    expect({ shown: countIn(before.lines[1] ?? ''), same: { lines: await r.lines(), rows: await drawnRows(r.ui) } }).toEqual({ shown: '1/3', same: before })
   })
-  test('NH-4 Owner whose ids sit only in agent types sees no ticket progress', async ($, on) => {
-    const agents = [H_AGENT('a1', 'running', '', 0, { description: undefined, type: 'WS-11' }), H_AGENT('a2', 'running', '', 1, { description: undefined, type: 'WS-12' })]
-    const { ui } = await mountPane($, on, [S('own', { title: 'Release train' })], withPrefixes({ agents }))
-    // The own card is drawn (its title shows), so a missing count is not a missing card.
-    expect({ count: await ownCount(ui), drawn: await ownTitleDrawn(ui, 'Release train') }).toEqual({ count: null, drawn: true })
+  // NH-4
+  test('NH-4 An accepted report with no tickets shows no progress', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(THREE)
+    await r.redraw()
+    const shownBefore = countIn(await r.title())
+    await r.report([])
+    await r.redraw()
+    expect({ shownBefore, after: await none(r) }).toEqual({ shownBefore: '1/3', after: { bar: false, count: null, rows: 0 } })
   })
-  test('NH-5 Owner whose worker text has ids in the wrong case sees no ticket progress', () => {
-    const v = view([kid('scan ws-11 a', 'working', 0), kid('scan ws-12 b', 'working', 1)])
-    expect(countOf(ownOf(v).lines[1]!)).toBeNull()
+  // NH-5
+  test('NH-5 A report made in another session only shows no progress on the own card', async ($, on) => {
+    const sessions = [S('own', { title: TIT }), S('other', { cwd: '/q', title: 'Other work' })]
+    const theirs = await rig($, on, { world: mk({ selfName: 'other' }), sessions })
+    await theirs.report(THREE)
+    const stored = has((await theirs.readback()).text, 'AB-1')
+    const mine = await remount(theirs, { selfName: 'own' })
+    await mine.redraw()
+    expect({ stored, shown: await none(mine) }).toEqual({ stored: true, shown: { bar: false, count: null, rows: 0 } })
   })
-  test('NH-6 Owner whose ids are glued inside words sees no ticket progress', () => {
-    const v = view([kid('scan XWS-11 a', 'working', 0), kid('scan WS-12b b', 'working', 1)])
-    expect(countOf(ownOf(v).lines[1]!)).toBeNull()
+  // NH-6
+  test('NH-6 No worker shows Working: the own card shows Done or Idle, never Waiting', () => {
+    const line = statusOf(view([kid('scan a', 'done', 0), kid('scan b', 'idle', 1), kid('scan c', 'failed', 2)], { finishedAt: NOW - MIN }))
+    expect({ waiting: /Waiting/.test(line), done: /Done|Idle/.test(line) }).toEqual({ waiting: false, done: true })
   })
-  test('NH-7 Owner sees no ticket progress on another session\'s card', async ($, on) => {
-    const sessions = [S('own'), S('other', { title: 'WS-12' })]
-    const { ui } = await mountPane($, on, sessions, withPrefixes({ agents: THREE() }))
-    const other = (await cardLines(ui, 'other')).join('\n')
-    expect({ own: await ownCount(ui), other: countIn(other), rows: await hLeads(ui) }).toEqual({ own: '0/3', other: null, rows: ['WS-11', 'WS-12', 'APP-3'] })
+  // NH-7
+  test('NH-7 Only a Needs-you worker: no Waiting', () => {
+    const line = statusOf(view([kid('ask alpha', 'needs-you', 0)], { own: { childNeedAt: NOW - MIN } }))
+    expect({ waiting: /Waiting/.test(line), needs: /Needs you/.test(line) }).toEqual({ waiting: false, needs: true })
   })
-  test('NH-8 Owner whose workers have all finished sees Idle or Done, not Waiting', () => {
-    const v = view([kid('scan alpha', 'done', 0), kid('scan beta', 'failed', 1), kid('scan gamma', 'idle', 2)])
-    expect(/Waiting/.test(plain(ownOf(v).lines[0]!))).toBe(false)
+  // NH-8
+  test('NH-8 Another session\'s workers running and the own session has none: no Waiting on any card', async ($, on) => {
+    const sessions = [S('own', { status: 'idle' }), S('other', { status: 'busy', cwd: '/q' })]
+    const r = await rig($, on, { world: mk({ agents: [], selfName: 'own' }), sessions })
+    expect([/Waiting/.test((await r.lines('own'))[0] ?? ''), /Waiting/.test((await r.lines('other'))[0] ?? '')]).toEqual([false, false])
   })
-  test('NH-9 Owner whose only live worker needs them sees Needs you, not Waiting', () => {
-    const v = view([kid('ask alpha', 'needs-you', 0)], { own: { childNeedAt: NOW - MIN } })
-    const line = plain(ownOf(v).lines[0]!)
-    expect({ needs: /Needs you/.test(line), waiting: /Waiting/.test(line) }).toEqual({ needs: true, waiting: false })
+  // NH-9
+  test('NH-9 An accepted report that removes nothing names no removed ticket', async ($, on) => {
+    const r = await rig($, on)
+    await r.report(THREE)
+    const a = (await r.report([tk('AB-1', 'done'), tk('CD-2', 'done'), tk('EF-3', 'in progress')])).text
+    expect(a).toBe('Accepted: 3 tickets.')
   })
-  test('NH-10 Owner whose session Claude Code reports as waiting sees Needs you, not Waiting', () => {
-    const v = view([kid('scan alpha', 'working', 0)], { own: { raw: 'waiting' } })
-    expect(plain(ownOf(v).lines[0]!)).toMatch(/Needs you/)
+  // NH-10
+  test('NH-10 An empty report on an already empty list states no positive cleared count', async ($, on) => {
+    const r = await rig($, on)
+    const a = (await r.report([])).text
+    expect(a).toBe('Accepted: 0 tickets.')
   })
-  test('NH-11 Owner sees no Waiting on another session\'s idle card while own workers run', async ($, on) => {
-    const { ui } = await mountPane($, on, [S('own'), S('other', { status: 'idle' })], { agents: [H_AGENT('a1', 'running', 'scan alpha', 0)], selfName: 'own' })
-    expect([/Waiting/.test((await cardLines(ui, 'own'))[0] ?? ''), /Waiting/.test((await cardLines(ui, 'other'))[0] ?? '')]).toEqual([true, false])
+  // NH-11
+  test('NH-11 A list exactly 7 days old is kept and its progress shows on return', async ($, on) => {
+    expect(countIn(await (await sevenDays($, on, 7 * DAY)).title())).toBe('1/3')
   })
-  test('NH-12 Owner whose session is still working sees Working, not Waiting', () => {
-    const v = view([kid('scan alpha', 'working', 0)], { own: { raw: 'busy', statusSince: NOW - 5 * MIN } })
-    expect(plain(ownOf(v).lines[0]!)).toMatch(/Working/)
+  // NH-11
+  test('NH-11 A list exactly 7 days old is kept and its read-back lists the tickets', async ($, on) => {
+    const back = (await (await sevenDays($, on, 7 * DAY)).readback()).text
+    expect(THREE_IDS.every(id => has(back, id))).toBe(true)
   })
-  test('NH-13 Owner with no workers at all sees the card exactly as before', async ($, on) => {
-    const { ui } = await mountPane($, on, [S('own', { status: 'idle', title: 'Release train' })], withPrefixes({ agents: [] }))
-    expect({ count: await ownCount(ui), rows: (await drawnRows(ui)).length, waiting: /Waiting/.test(await ownStatus(ui)), drawn: await ownTitleDrawn(ui, 'Release train') })
-      .toEqual({ count: null, rows: 0, waiting: false, drawn: true })
+  // NH-12: see the edge-case block ("A worker the person stopped (killed)")
+  // NH-13
+  test('NH-13 A named worker that is not listed is never in attention', async ($, on) => {
+    const r = await rig($, on, { world: mk({ agents: [H_AGENT('w-other', 'failed', 'job other', 0)] }) })
+    await r.report([tk('AB-1', 'in progress', 'w-gone')])
+    await r.redraw()
+    const row = rowOfId(await rowInfo(r.ui), 'AB-1')
+    expect({ state: /In progress/.test(row?.text ?? ''), failed: /Failed|Needs you/.test(row?.text ?? ''), hue: row?.hue }).toEqual({ state: true, failed: false, hue: 'blue' })
   })
-  test('NH-14 Owner sees nothing invented when the worker list was never readable', async ($, on) => {
-    const { ui } = await mountPane($, on, [S('own', { status: 'idle', title: 'Release train' })], withPrefixes({ agentsFail: true }))
-    // The own card is drawn and reads as an idle card does; the unreadable list invents no count, rows or Waiting.
-    expect({ count: await ownCount(ui), rows: (await drawnRows(ui)).length, waiting: /Waiting/.test(await ownStatus(ui)), drawn: await ownTitleDrawn(ui, 'Release train'), status: await ownStatus(ui) })
-      .toEqual({ count: null, rows: 0, waiting: false, drawn: true, status: IDLE_STATUS_LINE })
+  // NH-14
+  test('NH-14 A done ticket with a Failed worker is not in attention and is green', async ($, on) => {
+    const r = await rig($, on, { world: mk({ agents: [H_AGENT('w-a', 'failed', 'job alpha', 0)] }) })
+    await r.report([tk('AB-1', 'done', 'w-a'), tk('CD-2', 'planned')])
+    await r.redraw()
+    const row = rowOfId(await rowInfo(r.ui), 'AB-1')
+    expect({ word: /Done/.test(row?.text ?? ''), failed: /Failed/.test(row?.text ?? ''), hue: row?.hue }).toEqual({ word: true, failed: false, hue: 'green' })
+  })
+  // NH-15: the same check as AC-53 ("Entering or leaving Waiting rings no sound").
+  test('NH-15 Entering or leaving Waiting rings no sound', async ($, on) => {
+    const played: unknown[] = []
+    on('audio.play', ($p, e) => (played.push((e as { clip: unknown }).clip), { value: undefined }) as never)
+    const sessions = [S('own', { status: 'idle' })]
+    const world = mk({ agents: [], store: new Map<string, unknown>([['setting:sound', true]]) })
+    const r = await rig($, on, { world, sessions })
+    await r.clock.advance(35_000); await r.ui.advance(35_000)
+    sessions[0]!.status = 'waiting'
+    sessions[0]!.sinceMs = -1000
+    await r.redraw()
+    const control = played.length
+    sessions[0]!.status = 'idle'
+    sessions[0]!.sinceMs = 0
+    await r.redraw()
+    world.agents = [H_AGENT('a1', 'running', 'scan alpha', 0)]
+    await r.redraw()
+    world.agents = [H_AGENT('a1', 'completed', 'scan alpha', 0)]
+    await r.redraw()
+    expect({ control, waitingChanges: played.length - control }).toEqual({ control: 1, waitingChanges: 0 })
+  })
+  // NH-16
+  test('NH-16 A title line with fewer than 5 bar cells draws no bar glyph', async ($, on) => {
+    const r = await rig($, on, { cols: 10 })
+    await r.report(THREE)
+    await r.redraw()
+    expect({ bar: await hasBar(r.ui), count: countIn(await r.title()) }).toEqual({ bar: false, count: '1/3' })
+  })
+  // NH-17
+  test('NH-17 The one-line form draws no bar and no group chip', async ($, on) => {
+    const r = await rig($, on, { world: mk({ store: new Map<string, unknown>([['setting:workingShelf', true]]) }), sessions: [S('own', { status: 'busy', sinceMs: 5 * MIN, title: TIT })] })
+    await r.report([tk('AID-1', 'done'), tk('AID-2', 'planned')], 'EP-1')
+    await r.redraw()
+    const text = await ownRowText(r.ui)
+    expect({ count: countIn(text), bar: (await ownRowCells(r.ui)).length, chip: text.includes('◆') || /\bAID\b/.test(text) }).toEqual({ count: '1/2', bar: 0, chip: false })
+  })
+  // NH-18
+  test('NH-18 No epic and mixed prefixes show no group chip', async ($, on) => {
+    const r = await rig($, on)
+    await r.report([tk('WS-1', 'planned'), tk('APP-2', 'planned')])
+    await r.redraw()
+    const line = await r.title()
+    expect({ count: countIn(line), noChip: /^\s*Release 42/.test(line) }).toEqual({ count: '0/2', noChip: true })
+  })
+  // NH-19
+  test('NH-19 Ticket progress showing: no branch chip on the own card', async ($, on) => {
+    const r = await rig($, on, { world: withPrefixes(), sessions: [own({ branch: 'WS-12-fix' })] })
+    await r.report([tk('APP-1', 'planned'), tk('CD-2', 'planned')])
+    await r.redraw()
+    const line = await r.title()
+    expect({ count: countIn(line), branchChip: /WS-12/.test(line) }).toEqual({ count: '0/2', branchChip: false })
+  })
+  /** R-7: the list is 2 s short of 7 days; a refused report and a read-back do not renew it, so one redraw (5 s) carries it over the 7th day. */
+  const refusedAndRead = async ($: any, on: On) => {
+    const r = await sevenDays($, on, 7 * DAY - 2000)
+    const refused = await F_reportRaw($, r.world, [{ id: 'QX-9', state: 'blocked' }])
+    const read = await r.readback()
+    const control = { refused: refused.refused, namesState: /state/.test(refused.text), read: has(read.text, 'AB-1') }
+    await r.redraw()
+    return Object.assign(r, { control })
+  }
+  const CONTROL = { refused: true, namesState: true, read: true }
+  // NH-20
+  test('NH-20 A refused report and a read-back do not renew the 7 days: the list is gone on return', async ($, on) => {
+    const back = await refusedAndRead($, on)
+    expect({ control: back.control, count: countIn(await back.title()), bar: await hasBar(back.ui) }).toEqual({ control: CONTROL, count: null, bar: false })
+  })
+  // NH-20
+  test('NH-20 A refused report and a read-back do not renew the 7 days: the read-back on return is empty', async ($, on) => {
+    const back = await refusedAndRead($, on)
+    expect({ control: back.control, ...emptyReadback((await back.readback()).text, THREE_IDS) }).toEqual({ control: CONTROL, ...EMPTY_OK })
   })
 })
-
-// Rendered / Visual (O): real colours and the 44-column look are Owner captures, not automatable here.
-todo('AC-20 (O) real status colours of the bar in a live 44-column pane -- Owner capture; the hue table is asserted above')
-todo('AC-29 (O) Done ticket dot vs finished child dot, live -- Owner capture; the dot hues are asserted above')
-todo('AC-38 (O) green Waiting on the Active shelf, live -- Owner capture; the drawn colour is asserted above')

@@ -322,11 +322,19 @@ const moreLine = async (ui: Ui) => (await allText(ui)).map(t => /\+(\d+) more/.e
 const visibleRows = async (ui: Ui): Promise<string[]> => {
   const root = (await ui.findAll({ type: 'Box' }))[0]
   const out: string[] = []
-  const go = (el: any, hidden: boolean) => {
-    if (!el || typeof el !== 'object') return
+  // Tree nodes below the root carry no `text`; a Box's text is its Text descendants' strings joined.
+  const joined = (e: any): string => (e?.type === 'Text' ? (e.children ?? []).filter((c: unknown) => typeof c === 'string').join('') : (e?.children ?? []).map(joined).join(''))
+  /** Returns whether a row was taken at or below `el`, so an outer Box holding rows is not counted as a row. */
+  const go = (el: any, hidden: boolean): boolean => {
+    if (!el || typeof el !== 'object') return false
     const isHidden = hidden || el.props?.display === 'none'
-    if (!isHidden && el.type === 'Box' && ROW_START.test(String(el.text ?? ''))) out.push(String(el.text))
-    for (const c of el.children ?? []) go(c, isHidden)
+    let inner = false
+    for (const c of el.children ?? []) inner = go(c, isHidden) || inner
+    if (inner || isHidden || el.type !== 'Box') return inner
+    const t = joined(el)
+    if (!ROW_START.test(t)) return false
+    out.push(t)
+    return true
   }
   go(root, false)
   return out.filter((t, i) => !out.slice(0, i).some(before => before.trim() === t.trim()))
@@ -1415,19 +1423,21 @@ describe('5. ticket rows', () => {
     H_AGENT('w-ask', 'running', 'job gamma', 2), H_AGENT('w-top', 'failed', 'job delta', 3), F_rollup('w-sub', 'w-top', 'running', 'job sub', 4),
   ]
   const LIST32 = [tk('PLN-1', 'planned'), tk('RUN-2', 'in progress', 'w-run'), tk('DON-3', 'done'), tk('BAD-4', 'in progress', 'w-bad'), tk('ASK-5', 'in progress', 'w-ask'), tk('TOP-6', 'in progress', 'w-top')]
-  const rows32 = async ($: any, on: On) => {
+  // The 5-row cap (AC-36) hides the sixth ticket: DON-3 ranks last in LIST32, so the Done check and the dot-colors check for DON-3 use LIST32 without PLN-1.
+  const LIST32_NO_PLN = LIST32.filter(t => t.id !== 'PLN-1')
+  const rows32 = async ($: any, on: On, list: readonly Tk[] = LIST32) => {
     const world = mk({ agents: AGENTS32 })
     const r = await rig($, on, { world })
     await askFor($, world, 'w-ask')
     await askFor($, world, 'w-sub')
-    await r.report(LIST32)
+    await r.report(list)
     await r.redraw()
     return rowInfo(r.ui)
   }
   const word32 = (label: string, id: string, word: RegExp, extra: RegExp = /./) =>
     // AC-32
     test(`A ticket row shows id, colored dot, state word and its worker's age (${label})`, async ($, on) => {
-      const row = rowOfId(await rows32($, on), id)
+      const row = rowOfId(await rows32($, on, id === 'DON-3' ? LIST32_NO_PLN : LIST32), id)
       expect({ found: row !== undefined, word: word.test(row?.text ?? ''), extra: extra.test(row?.text ?? '') }).toEqual({ found: true, word: true, extra: true })
     })
   word32('Planned', 'PLN-1', /Planned/)
@@ -1439,7 +1449,8 @@ describe('5. ticket rows', () => {
   // AC-32
   test('A ticket row shows id, colored dot, state word and its worker\'s age (dot colors)', async ($, on) => {
     const rows = await rows32($, on)
-    const hue = (id: string) => rowOfId(rows, id)?.hue
+    const rowsNoPln = await rows32($, on, LIST32_NO_PLN)
+    const hue = (id: string) => rowOfId(id === 'DON-3' ? rowsNoPln : rows, id)?.hue
     expect(['PLN-1', 'RUN-2', 'DON-3', 'BAD-4', 'ASK-5', 'TOP-6'].map(hue)).toEqual(['gray', 'blue', 'green', 'red', 'red', 'red'])
   })
   // AC-32 (R-12, L-10; spec Known Gap 2): a 24-character id with a 59-minute worker age, the widest row (In progress and a 3-cell age)
@@ -1477,7 +1488,8 @@ describe('5. ticket rows', () => {
     const wider: number[] = []
     for (const cols of [44, 36, 30, 28, 22, 19]) {
       const { text } = await longRow($, on, cols)
-      if (!text.includes('ABCDEFG') || cellWidth(text) > cols - 2) wider.push(cols)
+      // L-10 step 4: below the 28-column floor the id drops, so ABCDEFG is required only at 28 columns and wider
+      if ((cols >= 28 && !text.includes('ABCDEFG')) || cellWidth(text) > cols - 2) wider.push(cols)
     }
     expect(wider).toEqual([])
   })
@@ -2012,7 +2024,8 @@ describe('edge cases', () => {
   // TODO(translator): edge "no signal for a usage-limit stop" and edge "worker stopped by a usage limit" (R-6): plan Open Questions row 4 is open, so no usage-limit signal is locked; a failed worker already counts as attention (AC-18, AC-32).
   // Edge: a report names a forgotten worker (more than 20 finished)
   test('Edge: a report names a worker the pane has forgotten; the row shows its reported state without age and is not red', async ($, on) => {
-    const agents = Array.from({ length: 21 }, (_, i) => H_AGENT(`w-${i}`, i === 0 ? 'failed' : 'completed', `old job ${i}`, i))
+    // "Forgotten" = Bridge no longer lists it: the reported worker w-0 is absent from the agent list; 20 newer finished workers are listed.
+    const agents = Array.from({ length: 20 }, (_, i) => H_AGENT(`w-${i + 1}`, 'completed', `old job ${i + 1}`, i + 1))
     const world = mk({ agents })
     const r = await rig($, on, { world })
     await r.report([tk('AB-1', 'in progress', 'w-0')])
@@ -2113,11 +2126,16 @@ describe('edge cases', () => {
   // Standard category Unicode-RTL: wide and right-to-left ids
   const wideRow = (label: string, id: string) =>
     test(`Edge: a 24-character ${label} id is accepted and its row is cut by cell width with an ellipsis`, async ($, on) => {
-      const r = await rig($, on)
-      const a = await r.report([tk(id, 'planned')])
-      await r.redraw()
-      const row = (await rowInfo(r.ui))[0]?.text ?? ''
-      expect({ accepted: /accept/i.test(a.text), fits: row !== '' && cellWidth(row) <= 44, cut: row.includes('…') }).toEqual({ accepted: true, fits: true, cut: true })
+      // A 24-cell id fits whole at 44 columns (L-10), so the ellipsis is asserted at 28 columns, where it cannot fit; the pane-edge check runs at both widths.
+      const seen: Array<{ accepted: boolean; fits: boolean; cut: boolean }> = []
+      for (const cols of [44, 28]) {
+        const r = await rig($, on, { cols })
+        const a = await r.report([tk(id, 'planned')])
+        await r.redraw()
+        const row = (await rowInfo(r.ui))[0]?.text ?? ''
+        seen.push({ accepted: /accept/i.test(a.text), fits: row !== '' && cellWidth(row) <= cols, cut: cols === 28 ? row.includes('…') : true })
+      }
+      expect(seen).toEqual([{ accepted: true, fits: true, cut: true }, { accepted: true, fits: true, cut: true }])
     })
   wideRow('CJK', '日本語のチケット番号'.repeat(3).slice(0, 24))
   wideRow('right-to-left', 'مرحبا بالعالم الجميل جدا'.slice(0, 24))
@@ -2160,7 +2178,9 @@ describe('null hypothesis', () => {
   // NH-2
   test('NH-2 Workers named after tickets and no report, prefixes set: no progress', async ($, on) => {
     const agents = [H_AGENT('a1', 'running', 'fix WS-11', 0), H_AGENT('a2', 'running', 'WS-12 build', 1), H_AGENT('a3', 'running', 'scan WS-14', 2)]
-    expect(await none(await rig($, on, { world: withPrefixes({ agents }) }))).toEqual({ bar: false, count: null, rows: 0 })
+    // AC-41 keeps the workers' child rows (their labels name WS ids), so only the bar and the count are asserted, not the id regex on rows.
+    const { bar, count } = await none(await rig($, on, { world: withPrefixes({ agents }) }))
+    expect({ bar, count }).toEqual({ bar: false, count: null })
   })
   // NH-3
   test('NH-3 A refused report leaves the card identical to the redraw before it', async ($, on) => {

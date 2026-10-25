@@ -100,7 +100,7 @@ const bellSlotOf = (mode: GlyphMode, frame: 0 | 1 | 2): string => {
 
 /**
  * The status slot at the right end of line 1 (I-6): the Needs you bell pill, the red Failed pill, yellow
- * Background with the age, orange Check? with the age, the Working spinner, the gray Done pill, else the age. It may be empty when no time is known.
+ * Background with the age, orange Check? with the age, the Working spinner, Waiting (an Idle own card with a working worker), the gray Done pill, else the age. It may be empty when no time is known.
  */
 const statusSlotOf = (status: Status, since: number, now: number, palette: Palette, mode: GlyphMode, selected: boolean, woke = false, bell: 0 | 1 | 2 = 0, snoozedUntil?: number, waiting = false): Seg[] => {
   const age = since > 0 ? ageLabel(since, now) : undefined
@@ -179,13 +179,13 @@ const ticketOf = (c: CardInput): { chip: Seg[]; title: string } => {
 const barOf = (tickets: readonly Ticket[], cells: number, palette: Palette): Seg[] =>
   barRunsOf(tickets, cells).map(run => text(BAR_CELL.repeat(run.length - 1) + BAR_END, { color: palette.text[TICKET_HUE[run.color]], role: 'bar' }))
 
-/** The group chip: its label as one plain text segment in the gray pill's text colour, then a no-break space (plan L-8 undo form). */
+/** The group chip: its label as one plain text segment in the gray pill's text colour, then a plain space (plan L-8 undo form). */
 const groupChipOf = (c: CardInput, label: string): Seg[] => [text(label, { color: c.palette.pill.gray.fg }), text(' ')]
 
 /**
  * Line 2: the ticket chip when one is found, then the title, cut with an ellipsis. While ticket progress
  * shows, the bar and the `done/total` count sit at the right: the title gives way first, down to its first
- * character, then the bar shrinks, and below five cells the count stands alone (plan L-2, L-3).
+ * character, then the bar shrinks, and below five cells the count stands alone (plan L-8).
  */
 export const line2Of = (c: CardInput, width: number): Seg[] => {
   const progress = c.progress

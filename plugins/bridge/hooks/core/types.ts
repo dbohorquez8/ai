@@ -68,7 +68,7 @@ export type BackgroundTask = { id: string; kind: 'Command' | 'Monitoring' | 'Wor
 
 /** A child uses the same status slot as a card; an engine `killed` child becomes `idle` (age only). */
 export type ChildStatus = Extract<Status, 'working' | 'needs-you' | 'done' | 'failed' | 'idle'>
-export type Child = { id: string; label: string; status: ChildStatus; since: number; startedAt: number; texts?: readonly string[] }
+export type Child = { id: string; label: string; status: ChildStatus; since: number; startedAt: number; parentId?: string }
 
 /** A styled run of a drawn line; a line's runs sum to its exact cell width. */
 export type Seg =

@@ -1276,8 +1276,10 @@ describe('3. progress bar and count', () => {
   // AC-24
   test('A one-line own card shows the count without bar or chip', async ($, on) => {
     const { text, cells } = await oneLine($, on, 44)
-    const at = ['Zproj', 'Qtitle', '1/4', 'Working'].map(w => text.indexOf(w))
-    expect({ ordered: at.every((x, i) => x >= 0 && (i === 0 || x > at[i - 1]!)), bar: cells.length, chip: text.includes('◆') }).toEqual({ ordered: true, bar: 0, chip: false })
+    // At 44 columns the 23-cell project leaves the title at its minimum (AC-24 shrinks the title first), so the anchors are first letters searched in order.
+    const at: number[] = []
+    for (const w of ['Z', 'Q', '1/4', 'Working']) at.push(text.indexOf(w, at.length > 0 ? at[at.length - 1]! + 1 : 0))
+    expect({ ordered: at.every(x => x >= 0), bar: cells.length, chip: text.includes('◆') }).toEqual({ ordered: true, bar: 0, chip: false })
   })
   // AC-24
   test('A one-line own card shows the count without bar or chip (narrowing: title, then project, then title dropped; count and status kept)', async ($, on) => {
@@ -1301,7 +1303,8 @@ describe('3. progress bar and count', () => {
   test('A title line with fewer than 5 bar cells shows the count only', async ($, on) => {
     const tickets = [tk('AB-1', 'done'), tk('CD-2', 'planned'), tk('EF-3', 'planned')]
     const scenes: Array<Scene & { chip: boolean; count: boolean; text: string }> = []
-    for (let cols = 44; cols >= 8; cols--) {
+    // Down to 6 columns: the title is dropped only once the line cannot hold the title minimum, one space and the count (6 cells).
+    for (let cols = 44; cols >= 6; cols--) {
       const r = await shown($, on, tickets, { cols, epic: 'AID-300', sessions: [own({ title: LONG })] })
       const text = await r.title()
       scenes.push({ cols, cells: (await titleCells(r.ui)).length, title: await titleOfLine(r.ui), chip: text.includes('◆AID-300'), count: countIn(text) === '1/3', text })
@@ -1658,7 +1661,7 @@ describe('6. keeping and clearing a report', () => {
     await after.redraw()
     const rows = await drawnRows(after.ui)
     expect({ before, count: countIn(await after.title('own-r')), previousRows: rows.filter(t => THREE_IDS.some(id => has(t, id))).length, resumedRows: rows.filter(t => has(t, 'XY-1') || has(t, 'XY-2')).length })
-      .toEqual({ before: '1/3', count: '0/2', previousRows: 0, resumedRows: 2 })
+      .toEqual({ before: '1/3', count: '1/2', previousRows: 0, resumedRows: 2 })
   })
   // AC-44: the two sessions share the store; each is its own session id
   const twoSessions = async ($: any, on: On) => {

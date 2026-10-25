@@ -807,9 +807,9 @@ describe('persistence', () => {
   })
   // ticket prefixes, as a list of ticket prefixes.
   test('/bridge tickets sets the prefix list, keeps their case and drops duplicates; off clears it', () => {
-    expect(paneSettingOf('tickets APP-,OPS-')).toEqual({ key: 'setting:tickets', value: ['APP-', 'OPS-'], label: 'Ticket prefixes: APP-, OPS-' })
-    expect(paneSettingOf('tickets APP, APP ,OPS-')).toEqual({ key: 'setting:tickets', value: ['APP', 'OPS-'], label: 'Ticket prefixes: APP, OPS-' })
-    expect(paneSettingOf('tickets off')).toEqual({ key: 'setting:tickets', value: [], label: 'Ticket prefixes: off' })
+    expect(paneSettingOf('tickets APP-,OPS-')).toEqual({ key: 'setting:tickets', value: ['APP-', 'OPS-'], label: 'Ticket prefixes: APP-, OPS- (branch chip)' })
+    expect(paneSettingOf('tickets APP, APP ,OPS-')).toEqual({ key: 'setting:tickets', value: ['APP', 'OPS-'], label: 'Ticket prefixes: APP, OPS- (branch chip)' })
+    expect(paneSettingOf('tickets off')).toEqual({ key: 'setting:tickets', value: [], label: 'Ticket prefixes: off (branch chip)' })
     expect(loadStored(new Map<string, unknown>([['setting:tickets', ['APP-']]])).stored.settings.tickets).toEqual(['APP-'])
     expect(loadStored(new Map<string, unknown>([['setting:tickets', 'APP-']])).resetKeys).toEqual(['setting:tickets'])
     expect('tickets' in loadStored(new Map<string, unknown>([['setting:tickets', []]])).stored.settings).toBe(false)
@@ -838,7 +838,7 @@ describe('persistence', () => {
     expect(DEFAULT_CHECK_AFTER_MINUTES).toBe(15)
   })
   test('any other argument is an error naming every form', () => {
-    expect(PANE_ARGS_HINT).toBe('icons on|off · working-shelf on|off · glyphs auto|nerd|plain · theme auto|light|dark · tickets APP-,OPS-|off · soft-limit 100k|off · check-after 15|off · sound on|off')
+    expect(PANE_ARGS_HINT).toBe('icons on|off · working-shelf on|off · glyphs auto|nerd|plain · theme auto|light|dark · tickets APP-,OPS-|off (branch chip) · soft-limit 100k|off · check-after 15|off · sound on|off')
     for (const bad of ['icons', 'icons maybe', 'theme blue', 'working-shelf', 'creatures off', 'icons on now', 'theme', 'on', 'tickets', 'soft-limit', 'soft-limit lots', 'soft-limit 0', 'soft-limit -5k', 'check-after', 'check-after 0', 'check-after 1.5', 'check-after -5']) {
       expect(paneSettingOf(bad)).toEqual({ error: `Unknown setting. Use: /bridge ${PANE_ARGS_HINT}` })
     }

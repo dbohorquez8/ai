@@ -177,7 +177,10 @@ const ticketOf = (c: CardInput): { chip: Seg[]; title: string } => {
 
 /** The bar: one segment per run, every cell `━` and the run's last cell `╸`, coloured by the run's ticket hue (plan L-4). */
 const barOf = (tickets: readonly Ticket[], cells: number, palette: Palette): Seg[] =>
-  barRunsOf(tickets, cells).map(run => text(BAR_CELL.repeat(run.length - 1) + BAR_END, { color: palette.text[TICKET_HUE[run.status]], role: 'bar' }))
+  barRunsOf(tickets, cells).map(run => text(BAR_CELL.repeat(run.length - 1) + BAR_END, { color: palette.text[TICKET_HUE[run.color]], role: 'bar' }))
+
+/** The group chip: its label as one plain text segment in the gray pill's text colour, then a no-break space (plan L-8 undo form). */
+const groupChipOf = (c: CardInput, label: string): Seg[] => [text(label, { color: c.palette.pill.gray.fg }), text(' ')]
 
 /**
  * Line 2: the ticket chip when one is found, then the title, cut with an ellipsis. While ticket progress
@@ -185,20 +188,29 @@ const barOf = (tickets: readonly Ticket[], cells: number, palette: Palette): Seg
  * character, then the bar shrinks, and below five cells the count stands alone (plan L-2, L-3).
  */
 export const line2Of = (c: CardInput, width: number): Seg[] => {
-  const { chip, title } = ticketOf(c)
   const progress = c.progress
-  if (!progress) return fitSegs([...chip, titleOf(c, title)], width)
+  if (!progress) {
+    const { chip, title } = ticketOf(c)
+    return fitSegs([...chip, titleOf(c, title)], width)
+  }
+  const title = c.s.title
+  const chip = progress.chip !== null ? groupChipOf(c, progress.chip) : []
   const count = text(`${progress.done}/${progress.total}`, { role: 'count' })
   const countCells = sumOf([count])
   const chipCells = sumOf(chip)
   const minTitle = titleMinOf(title)
-  const cells = barWidthOf(width, chipCells, cellWidth(minTitle), countCells)
-  const hasBar = cells >= MIN_BAR
-  const shown = hasBar ? fitCells(title, width - chipCells - 1 - cells - 1 - countCells) : minTitle
-  const left = [...chip, ...(shown ? [titleOf(c, shown)] : [])]
-  const bar = hasBar ? [...barOf(progress.tickets, cells, c.palette), text(' ')] : []
-  const gap = width - sumOf(left) - sumOf(bar) - countCells
-  return fitSegs([...left, ...spaces(sumOf(left) > 0 ? Math.max(1, gap) : gap), ...bar, count], width)
+  const minCells = cellWidth(minTitle)
+  const cells = barWidthOf(width, chipCells, minCells, countCells)
+  if (cells >= MIN_BAR) {
+    const left = [...chip, titleOf(c, fitCells(title, width - chipCells - 1 - cells - 1 - countCells))]
+    const bar = [...barOf(progress.tickets, cells, c.palette), text(' ')]
+    return fitSegs([...left, ...spaces(Math.max(1, width - sumOf(left) - sumOf(bar) - countCells)), ...bar, count], width)
+  }
+  const left: Seg[] =
+    width >= chipCells + minCells + 1 + countCells ? [...chip, titleOf(c, minTitle)]
+    : width >= minCells + 1 + countCells ? [titleOf(c, minTitle)]
+    : []
+  return fitSegs([...left, ...spaces(Math.max(left.length > 0 ? 1 : 0, width - sumOf(left) - countCells)), count], width)
 }
 
 type Item = { key: 'branch' | 'badge' | 'model' | 'pr' | 'context'; segs: Seg[] }
@@ -272,19 +284,17 @@ const oneLineWithCountOf = (c: CardInput, width: number, slot: readonly Seg[]): 
   const tail = [count, ...(slotWidth > 0 ? [text(' '), ...slot] : [])]
   const room = width - sumOf(tail) - 1
   const project = c.s.project
+  const title = c.s.title
+  const m = cellWidth(titleMinOf(title))
+  const p = cellWidth(project)
   const left: Seg[] = []
-  if (room > 0) {
-    const projectWidth = cellWidth(project)
-    if (!project) {
-      left.push(titleOf(c, fitCells(c.s.title, room)))
-    } else if (projectWidth >= room) {
-      left.push(projectOf(c, fitCells(project, room)))
-    } else {
-      left.push(projectOf(c, project))
-      const titleRoom = room - projectWidth - 1
-      if (titleRoom > 0) left.push(text(' '), titleOf(c, fitCells(c.s.title, titleRoom)))
-    }
-  }
+  if (project) {
+    if (p + 1 + cellWidth(title) <= room) left.push(projectOf(c, project), text(' '), titleOf(c, title))
+    else if (p + 1 + m <= room) left.push(projectOf(c, project), text(' '), titleOf(c, fitCells(title, room - p - 1)))
+    else if (room - 1 - m >= 1) left.push(projectOf(c, fitCells(project, room - 1 - m)), text(' '), titleOf(c, titleMinOf(title)))
+    else if (m <= room) left.push(titleOf(c, titleMinOf(title)))
+  } else if (cellWidth(title) <= room) left.push(titleOf(c, title))
+  else if (m <= room) left.push(titleOf(c, fitCells(title, room)))
   return fitSegs([...left, ...spaces(width - sumOf(left) - sumOf(tail)), ...tail], width)
 }
 

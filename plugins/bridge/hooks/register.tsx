@@ -1057,7 +1057,7 @@ export const register: Register = on => {
     const open = await read($, snoozeOpen)
     const isSortOpen = await read($, sortOpen)
     const inputOf = (pick: number | undefined): ViewInput => ({
-      sessions, stored: kept, finished: finishedNow, children: childList, now: at, width, caps: shownCaps, bell: step,
+      sessions, stored: kept, finished: finishedNow, children: childList, report: reportNow, now: at, width, caps: shownCaps, bell: step,
       glyphMode: glyphModeOf(kept.settings.glyphs, env.TERM_PROGRAM),
       ...(open ? { snoozeOpen: open } : {}), ...(isSortOpen ? { sortOpen: true } : {}), ...(pick === undefined ? {} : { caption: pick }),
       palette, projectColors: projectColorsOf([...new Set(sessions.map(s => s.project))], shade), projectIcons: iconFiles,
@@ -1066,6 +1066,7 @@ export const register: Register = on => {
     const finishedNow = await read($, finished)
     const iconFiles = projectIconsOf(await read($, places), await read($, icons))
     const childList = await read($, children)
+    const reportNow = await read($, report)
     const at = await read($, now)
     const shownCaps = await read($, caps)
     const step = await read($, bell)

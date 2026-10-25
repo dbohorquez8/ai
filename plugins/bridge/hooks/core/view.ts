@@ -3,7 +3,7 @@
 
 import { ALL_CLEAR, WORKING_CAPTIONS } from './captions'
 import { inkOf, monogramTextOf, projectMonogramLetter } from './icons'
-import { backgroundRowOf, childRowOf, headerOf, ICON_CELLS, ICON_MIN_COLUMNS, line1Of, line2Of, line3Of, MAX_CHILD_ROWS, oneLineOf, ROW_HORIZONTAL_PADDING, sortChildren } from './layout'
+import { backgroundRowOf, childRowOf, headerOf, ICON_CELLS, ICON_MIN_COLUMNS, line1Of, line2Of, line3Of, MAX_CHILD_ROWS, oneLineOf, ROW_HORIZONTAL_PADDING, sortChildren, ticketRowOf } from './layout'
 import { ticketProgressOf } from './progress'
 import type { CardInput } from './layout'
 import type { Report } from './report'
@@ -98,15 +98,19 @@ export const paneViewOf = (input: {
       labels: { pin: entry?.isPinned ? 'Unpin' : 'Pin', park: entry?.isParked ? 'Unpark' : 'Park', settle: entry?.isSettled ? 'Unsettle' : 'Settle' },
     }
     if (input.snoozeOpen !== undefined && input.snoozeOpen === s.prefId) view.snoozeMenu = snoozeOptionsAt(now)
-    if (s.isSelf && input.children.length > 0) {
+    if (s.isSelf && (progress || input.children.length > 0)) {
       const glyphMode = input.glyphMode ?? 'plain'
-      const all = [
-        ...sortChildren(progress ? progress.loose : input.children).map(child => {
+      const all: Array<() => NonNullable<CardView['children']>['rows'][number]> = [
+        ...(progress ? progress.rows : []).map(ticket => () => ({
+          id: `ticket:${ticket.id}`, text: ticketRowOf(ticket, contentWidth, now, palette).text,
+          ...(ticket.worker ? { opens: ticket.worker.id } : {}),
+        })),
+        ...sortChildren(progress ? progress.loose : input.children).map(child => () => {
           const row = childRowOf(child, contentWidth, now, palette, glyphMode, input.bell)
-          return { id: child.id, text: row.text, ...(row.bg ? { bg: row.bg } : {}) }
+          return { id: child.id, text: row.text, opens: child.id, ...(row.bg ? { bg: row.bg } : {}) }
         }),
       ]
-      const rows = all.slice(0, MAX_CHILD_ROWS)
+      const rows = all.slice(0, MAX_CHILD_ROWS).map(build => build())
       view.children = all.length > MAX_CHILD_ROWS ? { rows, more: `+${all.length - MAX_CHILD_ROWS} more` } : { rows }
     }
     const tasks = s.isSelf ? (s.background ?? []) : []

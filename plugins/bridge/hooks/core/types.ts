@@ -110,7 +110,7 @@ export type CardView = {
   actions: ReadonlyArray<'pin' | 'snooze' | 'park' | 'settle' | 'move-up' | 'move-down'>
   labels: { pin: 'Pin' | 'Unpin'; park: 'Park' | 'Unpark'; settle: 'Settle' | 'Unsettle' }
   snoozeMenu?: Array<{ label: string; wake: number }>
-  children?: { rows: Array<{ id: string; text: Seg[]; bg?: string }>; more?: string }
+  children?: { rows: Array<{ id: string; text: Seg[]; bg?: string; opens?: string }>; more?: string }
   background?: { rows: Array<{ id: string; text: Seg[] }>; more?: string }
 }
 export type ShelfView = { id: ShelfId; header: string; hasHeader: boolean; isCollapsed: boolean; cards: CardView[]; hasSort: boolean; sortMenu?: true }

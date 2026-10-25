@@ -16,20 +16,14 @@ export const childRowsOf = (els: Els, view: PaneView, card: CardView, tick: numb
   const rows = card.children.rows.map(row => {
     const label = row.text.filter(seg => seg.kind === 'text' && seg.role !== 'status')
     const tail = row.text.filter(seg => seg.kind === 'spinner' || (seg.kind === 'text' && seg.role === 'status'))
-    const opens = row.opens
-    const labelEls = label.map(seg =>
-      seg.kind === 'text' ? <Text {...textProps(seg, false)}>{opens !== undefined && viewedAgent === opens && seg.text === '●' ? '▸' : seg.text}</Text> : undefined,
-    )
     return (
       <Box key={`child:${row.id}`} flexDirection="row" width={view.width} paddingLeft={ROW_HORIZONTAL_PADDING} paddingRight={ROW_HORIZONTAL_PADDING}>
         <Box flexDirection="row" {...(row.bg ? { backgroundColor: row.bg } : {})}>
-          {opens !== undefined ? (
-            <Button key={`view:${opens}`} plain onPress={() => on.pressChild(opens)}>
-              {labelEls}
-            </Button>
-          ) : (
-            labelEls
-          )}
+          <Button key={`view:${row.id}`} plain onPress={() => on.pressChild(row.id)}>
+            {label.map(seg =>
+              seg.kind === 'text' ? <Text {...textProps(seg, false)}>{viewedAgent === row.id && seg.text === '●' ? '▸' : seg.text}</Text> : undefined,
+            )}
+          </Button>
           {tail.map(seg => (seg.kind === 'text' ? <Text {...textProps(seg, false)}>{seg.text}</Text> : spinnerOf(els, view, card, tick, row.id, row.bg ?? null)))}
         </Box>
       </Box>

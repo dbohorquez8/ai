@@ -85,6 +85,8 @@ type Spec = { name: string; description: string; isDeferred?: boolean; inputSche
 type World = {
   agents?: unknown[]; agentsFail?: boolean; store?: Map<string, unknown>; views?: Array<Record<string, unknown>>
   host?: string[]; texts?: string[]; selfName?: string
+  /** When true the shared store refuses writes (AC-57: the store-failure refusal, L-2). */
+  storeFails?: boolean
   /** Every tool the module registered, as registered (AC-01, AC-02). */
   tools?: Spec[]
   /** Programs the process runner refuses (exit 127): everything but `sh`, `ps` and `claude` (AC-59). */
@@ -123,7 +125,11 @@ const engine = (on: On, sessions: Sess[], world: World) => {
     ;(on as unknown as (...a: unknown[]) => void)(name, ...rest, (...a: unknown[]) => hook(...a))
   }
   reg('store.get', ($s: unknown, e: { key: string }) => ({ value: current.store.get(e.key) }))
-  reg('store.set', ($s: unknown, e: { key: string; value: unknown }) => (current.store.set(e.key, e.value), { value: undefined }))
+  reg('store.set', ($s: unknown, e: { key: string; value: unknown }) => {
+    if (current.world.storeFails) throw new Error('store is full')
+    current.store.set(e.key, e.value)
+    return { value: undefined }
+  })
   reg('store.delete', ($s: unknown, e: { key: string }) => (current.store.delete(e.key), { value: undefined }))
   reg('store.keys', () => ({ value: [...current.store.keys()] }))
   reg('session.start', ($s: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
@@ -751,9 +757,9 @@ describe('1. reporting tickets', () => {
 // that does not exist, so these checks reach the new functions through a namespace import of the two modules that already exist; hooks/core/report.ts
 // (L-2) is exercised through the tool entry (sections 1 and 6, the edge cases and NH-11/NH-20).
 const pg = progressNs as any
-type Color = 'done' | 'in_progress' | 'attention' | 'planned'
-const ck = (id: string, status: ChildStatus, startMin: number, parentId?: string, label = id): Child =>
-  ({ id, label, status, since: NOW - 2 * MIN, startedAt: T0 + startMin * MIN, ...(parentId !== undefined ? { parentId } : {}) })
+type Color = 'done' | 'in_progress' | 'planned'
+const ck = (id: string, status: ChildStatus, startMin: number, label = id): Child =>
+  ({ id, label, status, since: NOW - 2 * MIN, startedAt: T0 + startMin * MIN })
 const rpt = (tickets: readonly Tk[], epic?: string) => ({ v: 1, at: NOW, tickets: tickets.map(wire), ...(epic !== undefined ? { epic } : {}) })
 const progressOf = (tickets: readonly Tk[], children: readonly Child[] = [], epic?: string) => pg.ticketProgressOf(rpt(tickets, epic), children)
 const colorsOf = (list: readonly Color[]) => list.map(color => ({ color }))
@@ -1779,7 +1785,10 @@ describe('9. published text and permissions', () => {
       (await r.report([])).text,
       (await r.readback()).text,
     ]
-    // TODO(translator): AC-57 the store-failure refusal (R-11) needs a store that throws inside the tool call; the harness has no way to make `$.store.set` fail, so that one answer is not scanned.
+    // the store-failure refusal (L-2): a valid report while the shared store refuses writes
+    world.storeFails = true
+    answers.push((await r.report([tk('QX-9', 'planned')])).text)
+    world.storeFails = false
     const texts = [...world.tools!.flatMap(t => [t.name, t.description, JSON.stringify(t.inputSchema ?? {})]), ...answers, PANE_ARGS_HINT, ...(world.texts ?? [])]
     expect({ banned: texts.filter(t => BANNED.test(t)), described: world.tools!.length === 1, answered: answers.every(a => a !== '') }).toEqual({ banned: [], described: true, answered: true })
   })

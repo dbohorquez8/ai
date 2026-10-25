@@ -28,7 +28,8 @@ export type Since = { status: string; at: number }
 
 /** Mirrors of the core shapes kept in plugin state (this contract is self-contained; core/types.ts is the source). */
 export type ChildStatus = 'working' | 'needs-you' | 'done' | 'failed' | 'idle'
-export type StateChild = { id: string; label: string; status: ChildStatus; since: number; startedAt: number; texts?: string[] }
+export type StateReport = { v: 1; at: number; tickets: Array<{ id: string; state: 'planned' | 'in_progress' | 'done'; worker?: string }>; epic?: string }
+export type StateChild ={ id: string; label: string; status: ChildStatus; since: number; startedAt: number; texts?: string[] }
 export type StateEntry = {
   isPinned?: true; isParked?: true; parkedAt?: number; isSettled?: true; settledAt?: number
   snoozedUntil?: number; snoozedAt?: number; wokeAt?: number; ackAt?: number; seenAt?: number
@@ -72,6 +73,8 @@ declare module 'claude-code' {
       /** PrefId to when the session last finished. */
       finished: Record<string, number>
       selfId: string
+      /** The own session's live ticket report, a copy of its `tickets:` record. */
+      report: StateReport | null
       /** Source problems, above the shelves. */
       notice: string
       /** The note under the list after a press. */

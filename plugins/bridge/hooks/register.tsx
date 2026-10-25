@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { IconLookup, Row, Since, Title } from '../types'
+import type { IconLookup, Row, Since, StateReport, Title } from '../types'
 import type { Place as GitPlace } from '../types'
 import { joined, REFRESH_MS, REGISTRY_SCRIPT, registryOf, resumeCommandOf, rowsOf, unavailableOf, withSelf } from './pane-policy'
 import type { Listing, RegistryEntry } from './pane-policy'
@@ -25,6 +25,8 @@ import { DEFAULT_CHECK_AFTER_MINUTES, KEYS, loadStored, PREF_PREFIX, prunedKeys,
 import { glyphModeOf } from './adapters/glyphs'
 import { AGENTS_ARGV, AGENTS_MS, agentsJsonOf, modelIdOf, modelOf, PR_FIRST_MS, PR_MS, sessionsOf } from './core/sources'
 import type { Listed } from './core/sources'
+import { isDeadReport, REPORT_PREFIX, reportKeyOf, reportOf, ticketCallOf, TICKET_TOOL, TICKET_TOOL_DESCRIPTION, TICKET_TOOL_FULL, TICKET_TOOL_SCHEMA } from './core/report'
+import type { Report } from './core/report'
 import { finishedAtOf, ownOf, statusOf } from './core/status'
 import { DEFAULT_COLLAPSED } from './core/types'
 import type { BackgroundTask, Caps, Child, PaneView, Session, Settings, Status, Stored, ThemeMode } from './core/types'
@@ -51,6 +53,8 @@ const childSince = atom({ plugin: 'bridge', key: 'childSince' } as const, {} as 
 const stored = atom({ plugin: 'bridge', key: 'stored' } as const, DEFAULT_STORED)
 const finished = atom({ plugin: 'bridge', key: 'finished' } as const, {} as Record<string, number>)
 const selfId = atom({ plugin: 'bridge', key: 'selfId' } as const, '')
+/** The own session's live ticket report, a copy of its `tickets:` record (the store is the source). */
+const report = atom({ plugin: 'bridge', key: 'report' } as const, null as StateReport | null)
 const notice = atom({ plugin: 'bridge', key: 'notice' } as const, '')
 const shown = atom({ plugin: 'bridge', key: 'shown' } as const, '')
 const layoutNote = atom({ plugin: 'bridge', key: 'layoutNote' } as const, '')
@@ -99,6 +103,8 @@ let wasWorkingScene = false
 let caption: number | undefined
 let timers: Array<{ cancel: () => void }> = []
 let running: Promise<void> | undefined
+/** The ticket tool's calls, one at a time: each reads the list the earlier one wrote. */
+let ticketQueue: Promise<unknown> = Promise.resolve()
 type ViewInput = Parameters<typeof paneViewOf>[0]
 
 /** The last drawn view, its sessions and the input it was made from, read by the handlers, the animation tick and the refresh. */
@@ -370,6 +376,20 @@ const resetConversation = async ($: EngineInterface) => {
   await update($, childSince, () => ({}))
   await update($, since, () => ({}))
   await readSelfId($)
+  await readOwnReport($)
+}
+
+/** The own report from the store, for the id `$.session.id()` gives now; a dead record is deleted. */
+const readOwnReport = async ($: EngineInterface) => {
+  try {
+    const id = await read($, selfId)
+    if (!id) return void (await update($, report, old => (old === null ? old : null)))
+    const at = await $.clock.now()
+    const key = reportKeyOf(id)
+    const raw = await $.store.get(key)
+    if (isDeadReport(raw, at)) await $.store.delete(key)
+    await update($, report, old => keep(old, reportOf(raw, at)))
+  } catch {}
 }
 
 const readSelfId = async ($: EngineInterface) => {
@@ -411,7 +431,7 @@ const readSelfContext = async ($: EngineInterface) => {
 /** Reads every key, validates it, deletes what failed (with the reset note) and publishes the result. */
 const loadStore = async ($: EngineInterface) => {
   const raw = new Map<string, unknown>()
-  for (const key of await $.store.keys()) raw.set(key, await $.store.get(key))
+  for (const key of await $.store.keys()) if (!key.startsWith(REPORT_PREFIX)) raw.set(key, await $.store.get(key))
   const loaded = loadStored(raw)
   for (const key of loaded.resetKeys) await $.store.delete(key)
   if (loaded.resetKeys.length > 0) await update($, layoutNote, old => keep(old, LAYOUT_RESET))
@@ -460,6 +480,7 @@ const refreshOnce = async ($: EngineInterface) => {
   const at = await $.clock.now()
   // The id moves on after a `/clear` or a resume, which no `session.start` announces.
   await readSelfId($)
+  await readOwnReport($)
   try {
     const called = await $.tool.call({ tool: 'ListAgents' } as never)
     if ('deny' in called && called.deny) {
@@ -547,6 +568,10 @@ const reconcileStore = async ($: EngineInterface, at: number) => {
     // A claim is only news while its session lives: an ended session's `chime:` key goes with the prune.
     // An empty list is a failed read more often than no sessions at all: it keeps every claim.
     if (sessions.length > 0) for (const key of prunedChimeKeys(await $.store.keys().catch(() => []), new Set(sessions.map(s => s.prefId)))) await $.store.delete(key).catch(() => undefined)
+    // Other sessions' ticket lists past their 7 days (or unreadable) go too.
+    for (const key of (await $.store.keys().catch(() => [])).filter(one => one.startsWith(REPORT_PREFIX))) {
+      if (isDeadReport(await $.store.get(key).catch(() => undefined), at)) await $.store.delete(key).catch(() => undefined)
+    }
   }
   if (patches.length > 0 || isPruned) await loadStore($)
 }
@@ -795,6 +820,8 @@ const isOurs = (requestId: string) => requestId === PANE || requestId.startsWith
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
+    // A rejected registration leaves the pane working; no report can arrive.
+    await $.tool.register({ name: TICKET_TOOL, description: TICKET_TOOL_DESCRIPTION, inputSchema: TICKET_TOOL_SCHEMA as never, isDeferred: false }).catch(() => undefined)
     for (const timer of timers) timer.cancel()
     stopTicker()
     timers = []
@@ -851,6 +878,8 @@ export const register: Register = on => {
       const id = await $.session.id()
       await update($, selfId, () => id)
     } catch {}
+    await update($, report, () => null)
+    await readOwnReport($)
     const started$ = await $.clock.now()
     await update($, bell, () => bellOf(started$))
     await update($, snoozeOpen, () => '')
@@ -911,9 +940,39 @@ export const register: Register = on => {
   // `waiting` is not a prompt signal. The engine marks a real permission/plan
   // interaction as `ask` and supplies the child id and tool-use id here.
   on('tool.check', async ($, e, next) => {
+    if (e.tool === TICKET_TOOL_FULL) {
+      // The engine asks the person about a mod's own tool; Bridge answers its own, but a deny (plan mode) stays.
+      const verdict = await next(e)
+      return verdict.decision === 'deny' ? verdict : { ...verdict, decision: 'allow', reason: 'Bridge answers its own ticket tool.' }
+    }
     const checked = await next(e)
     if (e.agentId !== undefined && checked.decision === 'ask' && e.tool_use_id) await noteChildInteraction($, e.tool_use_id, e.agentId, true).catch(() => undefined)
     return checked
+  })
+  on('tool.call', { tool: TICKET_TOOL_FULL }, async ($, e) => {
+    const { tool: _tool, tool_use_id: _use, agentId, requestMeta: _meta, ...input } = e as Record<string, unknown>
+    const run = async () => {
+      const at = await $.clock.now()
+      const sessionId = await $.session.id()
+      const key = reportKeyOf(sessionId)
+      const raw = await $.store.get(key)
+      if (isDeadReport(raw, at)) await $.store.delete(key)
+      const out = ticketCallOf(input, reportOf(raw, at), at, agentId !== undefined)
+      if (out.write) {
+        const next: Report | null = out.write.report
+        try {
+          if (next) await $.store.set(key, next)
+          else await $.store.delete(key)
+        } catch {
+          return { deny: 'Refused: the ticket list could not be stored. The ticket list did not change.' }
+        }
+        if (sessionId === (await read($, selfId))) await update($, report, old => keep(old, next))
+      }
+      return out.isRefused ? { deny: out.text } : { result: out.text }
+    }
+    const answered = ticketQueue.then(run, run)
+    ticketQueue = answered
+    return answered
   })
   on('tool.call', async ($, e, next) => {
     const key = e.tool_use_id
@@ -927,7 +986,10 @@ export const register: Register = on => {
   })
   on('session.end', async ($, e, next) => {
     const ended = await next(e)
+    // `/clear` drops the old conversation's list for good; a resume keeps it for when that conversation comes back.
+    if (e.reason === 'clear') await $.store.delete(reportKeyOf(e.sessionId)).catch(() => undefined)
     if (e.reason === 'clear' || e.reason === 'resume') await resetConversation($).catch(() => undefined)
+    if (e.reason === 'clear') await update($, report, () => null).catch(() => undefined)
     return ended
   })
   on('prompt.submit', async ($, e, next) => {

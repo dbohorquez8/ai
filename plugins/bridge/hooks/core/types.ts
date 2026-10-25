@@ -68,7 +68,7 @@ export type BackgroundTask = { id: string; kind: 'Command' | 'Monitoring' | 'Wor
 
 /** A child uses the same status slot as a card; an engine `killed` child becomes `idle` (age only). */
 export type ChildStatus = Extract<Status, 'working' | 'needs-you' | 'done' | 'failed' | 'idle'>
-export type Child = { id: string; label: string; status: ChildStatus; since: number; startedAt: number; parentId?: string }
+export type Child = { id: string; label: string; status: ChildStatus; since: number; startedAt: number }
 
 /** A styled run of a drawn line; a line's runs sum to its exact cell width. */
 export type Seg =
@@ -110,7 +110,7 @@ export type CardView = {
   actions: ReadonlyArray<'pin' | 'snooze' | 'park' | 'settle' | 'move-up' | 'move-down'>
   labels: { pin: 'Pin' | 'Unpin'; park: 'Park' | 'Unpark'; settle: 'Settle' | 'Unsettle' }
   snoozeMenu?: Array<{ label: string; wake: number }>
-  children?: { rows: Array<{ id: string; text: Seg[]; bg?: string; opens?: string }>; more?: string }
+  children?: { rows: Array<{ id: string; text: Seg[]; bg?: string }>; more?: string }
   background?: { rows: Array<{ id: string; text: Seg[] }>; more?: string }
 }
 export type ShelfView = { id: ShelfId; header: string; hasHeader: boolean; isCollapsed: boolean; cards: CardView[]; hasSort: boolean; sortMenu?: true }

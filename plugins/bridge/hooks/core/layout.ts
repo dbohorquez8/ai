@@ -345,38 +345,6 @@ export const childRowOf = (child: Child, width: number, now: number, palette: Pa
 }
 
 /**
- * A ticket row under the own card: `  │ ID ● description ×n … status`. The dot takes the ticket's colour,
- * the description and status are the newest worker's; the description shrinks first (plan L-7).
- */
-export const ticketRowOf = (ticket: Ticket, width: number, now: number, palette: Palette): { text: Seg[] } => {
-  const hue = palette.text[TICKET_HUE[ticket.color]]
-  const worker = ticket.worker
-  const hasAge = worker !== undefined && (worker.status === 'working' || worker.status === 'idle') && worker.since > 0
-  const age = hasAge ? ageLabel(worker.since, now) : ''
-  const ageCells = hasAge ? 1 + cellWidth(age) : 0
-  const wordCells = cellWidth(ticket.word)
-  const idCells = cellWidth(ticket.id)
-  const idMin = cellWidth(`${[...ticket.id].slice(0, 7).join('')}…`)
-  const head = [text('  '), text('│', { dim: true }), text(' '), text('●', { color: hue }), text(' ')]
-  const fixedOf = (a: number) => 4 + 2 + 1 + wordCells + a
-  const cutId = (room: number): string => (room >= idCells ? ticket.id : room >= 1 ? fitCells(ticket.id, room) : '')
-  let showAge = hasAge
-  let id: string
-  let room = width - fixedOf(ageCells)
-  if (room >= idCells) id = ticket.id
-  else if (room >= idMin) id = cutId(room)
-  else {
-    showAge = false
-    room = width - fixedOf(0)
-    id = cutId(room)
-  }
-  const tail: Seg[] = [text(ticket.word, { color: hue, role: 'status' }), ...(showAge ? [text(` ${age}`, { dim: true, role: 'status' })] : [])]
-  const idSegs = id ? [text(id)] : []
-  const gap = id ? Math.max(1, width - sumOf(head) - sumOf(idSegs) - sumOf(tail)) : 0
-  return { text: fitSegs([...head, ...idSegs, ...spaces(gap), ...tail], width) }
-}
-
-/**
  * A background-task row under the own card, drawn like a child row: `  │ ⟳ Kind label … age`, the age
  * counted from when the task was first seen. The age carries role `status`.
  */

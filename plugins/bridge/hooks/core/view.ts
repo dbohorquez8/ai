@@ -3,7 +3,7 @@
 
 import { ALL_CLEAR, WORKING_CAPTIONS } from './captions'
 import { inkOf, monogramTextOf, projectMonogramLetter } from './icons'
-import { backgroundRowOf, childRowOf, headerOf, ICON_CELLS, ICON_MIN_COLUMNS, line1Of, line2Of, line3Of, MAX_CHILD_ROWS, oneLineOf, ROW_HORIZONTAL_PADDING, sortChildren, ticketRowOf } from './layout'
+import { backgroundRowOf, childRowOf, headerOf, ICON_CELLS, ICON_MIN_COLUMNS, line1Of, line2Of, line3Of, MAX_CHILD_ROWS, oneLineOf, ROW_HORIZONTAL_PADDING, sortChildren } from './layout'
 import { ticketProgressOf } from './progress'
 import type { CardInput } from './layout'
 import type { Report } from './report'
@@ -82,7 +82,7 @@ export const paneViewOf = (input: {
     const icon = iconOf(s.project, projectColor)
     const firstWidth = Math.max(0, contentWidth - (icon.kind === 'none' ? 0 : ICON_CELLS))
     const woke = isWoke(entry, status, now)
-    const progress = s.isSelf ? ticketProgressOf(input.report, input.children) : null
+    const progress = s.isSelf ? ticketProgressOf(input.report) : null
     const card: CardInput = {
       s, status, woke, children: s.isSelf ? input.children : [], ...(progress ? { progress } : {}), ...(s.isSelf && waitsOnWorkers(status, input.children) ? { waiting: true as const } : {}), now, bell: input.bell, palette, projectColor, glyphMode: input.glyphMode ?? 'plain',
       ...(stored.settings.tickets ? { tickets: stored.settings.tickets } : {}),
@@ -98,20 +98,13 @@ export const paneViewOf = (input: {
       labels: { pin: entry?.isPinned ? 'Unpin' : 'Pin', park: entry?.isParked ? 'Unpark' : 'Park', settle: entry?.isSettled ? 'Unsettle' : 'Settle' },
     }
     if (input.snoozeOpen !== undefined && input.snoozeOpen === s.prefId) view.snoozeMenu = snoozeOptionsAt(now)
-    if (s.isSelf && (progress || input.children.length > 0)) {
-      const glyphMode = input.glyphMode ?? 'plain'
-      const all: Array<() => NonNullable<CardView['children']>['rows'][number]> = [
-        ...(progress ? progress.rows : []).map(ticket => () => ({
-          id: `ticket:${ticket.id}`, text: ticketRowOf(ticket, contentWidth, now, palette).text,
-          ...(ticket.worker ? { opens: ticket.worker.id } : {}),
-        })),
-        ...sortChildren(progress ? progress.loose : input.children).map(child => () => {
-          const row = childRowOf(child, contentWidth, now, palette, glyphMode, input.bell)
-          return { id: child.id, text: row.text, opens: child.id, ...(row.bg ? { bg: row.bg } : {}) }
-        }),
-      ]
-      const rows = all.slice(0, MAX_CHILD_ROWS).map(build => build())
-      view.children = all.length > MAX_CHILD_ROWS ? { rows, more: `+${all.length - MAX_CHILD_ROWS} more` } : { rows }
+    if (s.isSelf && input.children.length > 0) {
+      const ordered = sortChildren(input.children)
+      const rows = ordered.slice(0, MAX_CHILD_ROWS).map(child => {
+        const row = childRowOf(child, contentWidth, now, palette, input.glyphMode ?? 'plain', input.bell)
+        return { id: child.id, text: row.text, ...(row.bg ? { bg: row.bg } : {}) }
+      })
+      view.children = ordered.length > MAX_CHILD_ROWS ? { rows, more: `+${ordered.length - MAX_CHILD_ROWS} more` } : { rows }
     }
     const tasks = s.isSelf ? (s.background ?? []) : []
     if (tasks.length > 0) {

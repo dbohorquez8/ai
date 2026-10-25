@@ -76,9 +76,9 @@ export const statusOf = (
   return 'idle'
 }
 
-/** A Done or Idle own card whose workers include one that is Working shows Waiting. */
+/** An Idle own card whose workers include one that is Working shows Waiting (OA-6). */
 export const waitsOnWorkers = (status: Status, children: readonly Child[]): boolean =>
-  (status === 'done' || status === 'idle') && children.some(child => child.status === 'working')
+  status === 'idle' &&children.some(child => child.status === 'working')
 
 /** The own facts `statusOf` reads from a merged session. */
 export const ownOf = (s: { failedAt?: number; background?: readonly unknown[]; isTurnOver?: boolean; childNeedAt?: number }): { failedAt?: number; background?: number; isTurnOver?: boolean; childNeedAt?: number } => ({

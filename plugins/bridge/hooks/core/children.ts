@@ -41,8 +41,7 @@ export const childrenOf = (
     const startedAt = started ?? prev?.startedAt ?? at
     seen[id] = { status, since, startedAt }
     const label = [agent.description, agent.name, agent.type].find(one => typeof one === 'string' && one.trim() !== '') as string | undefined
-    const parentId = typeof agent.parentId === 'string' && agent.parentId.trim() !== '' ? agent.parentId : undefined
-    return { id, label: label ?? id, status, since, startedAt, ...(parentId !== undefined ? { parentId } : {}) }
+    return { id, label: label ?? id, status, since, startedAt }
   })
   const live = new Set(list.map(child => child.id))
   const kept = old

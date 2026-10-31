@@ -21,7 +21,7 @@ Claude's reply carries three kinds of marker, each a bold word at the start of a
 
 | Marker in the reply | What the terminal shows |
 | --- | --- |
-| `**Read** <answer>` as the first paragraph | A blue `NEW ────` divider, then the answer in bold behind a blue info glyph; the word Read is dropped. |
+| `**Read** <answer>` as the first paragraph | A blue `NEW ────` divider, then the answer in bold behind a blue lightbulb; the word Read is dropped. |
 | `**Needs You** <question>` and the lettered options after it | A red `NEEDS YOU ────` divider, the question behind a red bell, red option letters, a dashed line between numbered questions. |
 | `**Waiting**`, `**Working**` or `**Done**` as the last paragraph | A green `WAITING`, yellow `WORKING` or plain `DONE` divider, then the sentence behind a cog, a spinner or a check. |
 
@@ -55,7 +55,7 @@ A reply with a Needs You block has no closing line, because the next step is you
 
 ### Glyphs
 
-In Ghostty and iTerm2 (and cmux, which reports itself as Ghostty), which ship Nerd Font glyphs, the mod draws the Font Awesome info sign, bell and check (U+F05A, U+F0F3, U+F00C) and the Material Design cog (U+F0493). Other terminals get `i`, `!`, `↻` and `✓`. Working always shows the braille spinner `⠋`.
+In Ghostty and iTerm2 (and cmux, which reports itself as Ghostty), which ship Nerd Font glyphs, the mod draws the Font Awesome bell (U+F0F3) and the Material Design lightbulb, cog and check circle (U+F0335, U+F0493, U+F05E0). Other terminals get `i`, `!`, `↻` and `✓`. Working always shows the braille spinner `⠋`.
 
 > The screenshots above still show the earlier bar design.
 

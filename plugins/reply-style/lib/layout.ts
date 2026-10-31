@@ -17,9 +17,9 @@ export const WRAP_INDENT = "    ";
 /** Glyph set, resolved by the hook from TERM_PROGRAM the way the bridge mod does it: Nerd Font glyphs in Ghostty and iTerm2, plain ones elsewhere. */
 export type GlyphMode = "nerd" | "plain";
 
-/** The glyph each marker draws in place of its word: info, bell, cog, spinner and a check for Done. */
+/** The glyph each marker draws in place of its word: a lightbulb for the opening, bell, cog, spinner and a check circle for Done. */
 export const GLYPHS: Readonly<Record<GlyphMode, { opening: string; label: string; waiting: string; working: string; done: string }>> = {
-  nerd: { opening: "\uf05a", label: "\uf0f3", waiting: "\u{f0493}", working: "⠋", done: "\uf00c" },
+  nerd: { opening: "\u{f0335}", label: "\uf0f3", waiting: "\u{f0493}", working: "⠋", done: "\u{f05e0}" },
   plain: { opening: "i", label: "!", waiting: "↻", working: "⠋", done: "✓" },
 };
 

@@ -1,6 +1,6 @@
 {
   "name": "reply-style",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Shows the reply markers in the Claude Code terminal as BB does: colored dividers and glyphs.",
   "author": {
     "name": "dbohorquez8"

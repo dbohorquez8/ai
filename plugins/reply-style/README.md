@@ -55,7 +55,7 @@ A reply with a Needs You block has no closing line, because the next step is you
 
 ### Glyphs
 
-In Ghostty and iTerm2 (and cmux, which reports itself as Ghostty), which ship Nerd Font glyphs, the mod draws the Font Awesome bell (U+F0F3) and the Material Design lightbulb, cog and check circle (U+F0335, U+F0493, U+F05E0). Other terminals get `i`, `!`, `↻` and `✓`. Working always shows the braille spinner `⠋`.
+In Ghostty and iTerm2 (and cmux, which reports itself as Ghostty), which ship Nerd Font glyphs, the mod draws the Font Awesome bell (U+F0F3) and the Material Design lightbulb, cog and check circle (U+F0335, U+F0493, U+F05E0). Other terminals get `i`, `!`, `↻` and `✓`. Working shows the Font Awesome spinner (U+F110), a ring of dots like BB's sidebar; other terminals get the braille `⠋`.
 
 > The screenshots above still show the earlier bar design.
 

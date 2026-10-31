@@ -1,10 +1,11 @@
 // Layout colors are roles; the host's theme resolves them, so a theme switch recolors the mod.
-import type { ThemeKey } from "claude-code";
+import type { Color } from "claude-code";
 import type { TerminalColor } from "./layout";
 
-export const THEME_KEYS: Readonly<Record<TerminalColor, { color: ThemeKey; dimColor?: true }>> = {
-  // "ide" is the theme's blue in every built-in theme; "suggestion" draws lavender in the dark ones.
-  accent: { color: "ide" },
+export const THEME_KEYS: Readonly<Record<TerminalColor, { color: Color; dimColor?: true }>> = {
+  // BB's NEW-line cyan (--timeline-accent, sampled #A1E7FA on the dark theme), Owner's ask 2026-10-31.
+  // No theme key holds a cyan, so this one role is a raw color: it does not follow a light theme.
+  accent: { color: "#a1e7fa" },
   error: { color: "error" },
   // Open Question 1, revised to B: the action bar is the error role at full strength (faint read as gray).
   errorBar: { color: "error" },

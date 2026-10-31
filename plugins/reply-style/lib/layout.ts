@@ -19,7 +19,7 @@ export type GlyphMode = "nerd" | "plain";
 
 /** The glyph each marker draws in place of its word: the bridge mod's bell, cog and spinner; Done draws none. */
 export const GLYPHS: Readonly<Record<GlyphMode, { opening: string; label: string; waiting: string; working: string }>> = {
-  nerd: { opening: "\uf05a", label: "\uf0f3", waiting: "⚙", working: "⠋" },
+  nerd: { opening: "\uf05a", label: "\uf0f3", waiting: "\uf013", working: "⠋" },
   plain: { opening: "i", label: "!", waiting: "↻", working: "⠋" },
 };
 

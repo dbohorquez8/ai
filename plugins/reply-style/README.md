@@ -55,7 +55,7 @@ A reply with a Needs You block has no closing line, because the next step is you
 
 ### Glyphs
 
-The glyphs are the bridge mod's: in Ghostty and iTerm2, which ship Nerd Font glyphs, the bell is ``, the cog `⚙`, the info sign ``. Other terminals get `!`, `↻` and `i`. Working always shows the braille spinner `⠋`.
+In Ghostty and iTerm2, which ship Nerd Font glyphs, the mod draws Font Awesome's info sign, bell and cog (`\uf05a`, `\uf0f3`, `\uf013`), the same family as the bridge mod's bell. Other terminals get `i`, `!` and `↻`. Working always shows the braille spinner `⠋`.
 
 > The screenshots above still show the earlier bar design.
 

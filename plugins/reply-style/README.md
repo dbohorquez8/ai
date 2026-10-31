@@ -21,7 +21,7 @@ Claude's reply carries three kinds of marker, each a bold word at the start of a
 
 | Marker in the reply | What the terminal shows |
 | --- | --- |
-| `**Read** <answer>` as the first paragraph | A blue `NEW ────` divider, then the answer in bold behind a blue lightbulb; the word Read is dropped. |
+| `**Read** <answer>` as the first paragraph | A cyan `NEW ────` divider (the color of BB's new-messages line), then the answer in bold behind a cyan lightbulb; the word Read is dropped. |
 | `**Needs You** <question>` and the lettered options after it | A red `NEEDS YOU ────` divider, the question behind a red bell, red option letters, a dashed line between numbered questions. |
 | `**Waiting**`, `**Working**` or `**Done**` as the last paragraph | A green `WAITING`, yellow `WORKING` or plain `DONE` divider, then the sentence behind a cog, a spinner or a check. |
 
@@ -78,7 +78,7 @@ Then pick **reply-markers** under Output style in `/config` and start a new sess
 
 ## Compatibility
 
-Tested on Claude Code 2.1.302. On another version the mod prints one notice per version change; the pictures above were captured on 2.1.308. It draws only in the terminal; every other surface, and any reply without markers, shows as usual. Colors come from your Claude Code theme.
+Tested on Claude Code 2.1.302. On another version the mod prints one notice per version change; the pictures above were captured on 2.1.308. It draws only in the terminal; every other surface, and any reply without markers, shows as usual. Colors come from your Claude Code theme, except the cyan of the opening and its `NEW` divider (#a1e7fa), which stays the same on a light theme.
 
 ## Limits
 

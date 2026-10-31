@@ -21,7 +21,7 @@ Claude's reply carries three kinds of marker, each a bold word at the start of a
 
 | Marker in the reply | What the terminal shows |
 | --- | --- |
-| `**Read** <answer>` as the first paragraph | The answer in bold behind a blue info glyph; the word Read is dropped. |
+| `**Read** <answer>` as the first paragraph | A blue `NEW ────` divider, then the answer in bold behind a blue info glyph; the word Read is dropped. |
 | `**Needs You** <question>` and the lettered options after it | A red `NEEDS YOU ────` divider, the question behind a red bell, red option letters, a dashed line between numbered questions. |
 | `**Waiting**`, `**Working**` or `**Done**` as the last paragraph | A green `WAITING`, yellow `WORKING` or plain `DONE` divider, then the sentence behind a cog, a spinner or nothing. |
 

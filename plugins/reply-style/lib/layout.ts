@@ -24,7 +24,7 @@ export const GLYPHS: Readonly<Record<GlyphMode, { opening: string; label: string
 };
 
 /** The divider word each block shows on its rule, like BB's uppercase "NEEDS YOU" / "WAITING" line. */
-export const DIVIDER_WORDS = { label: "NEEDS YOU", waiting: "WAITING", working: "WORKING", done: "DONE" } as const;
+export const DIVIDER_WORDS = { opening: "NEW", label: "NEEDS YOU", waiting: "WAITING", working: "WORKING", done: "DONE" } as const;
 
 /** The paragraph's text as the host would join it: markdown's own line breaks become spaces. */
 function paragraphText(lines: readonly string[], block: SourceBlock): string {
@@ -66,10 +66,11 @@ export function layoutReply(text: string, columns: number, glyphMode: GlyphMode 
   const sourceOf = (from: number, to: number): string => lines.slice(blocks[from]?.start, blocks[to]?.end).join("\n");
   const restOf = (block: SourceBlock | undefined): string => (block?.kind === "paragraph" ? block.rest.replace(/\n/g, " ") : "");
 
-  // Opening: the word Read becomes BB's blue info glyph; the rest is bold.
+  // Opening: a blue NEW divider like BB's new-messages line, then the word Read becomes the blue info glyph; the rest is bold.
   if (hasOpening) {
     const rest = restOf(blocks[0]).trim();
-    sections.push({ kind: "styled", lines: glyphLines(glyphs.opening, "accent", bold(inlineRuns(rest)), columns) });
+    const body = glyphLines(glyphs.opening, "accent", bold(inlineRuns(rest)), columns);
+    sections.push({ kind: "styled", lines: [dividerLine(DIVIDER_WORDS.opening, "accent", columns), ...body] });
   }
 
   const middleStart = hasOpening ? 1 : 0;

@@ -17,11 +17,22 @@ export const WRAP_INDENT = "    ";
 /** Glyph set, resolved by the hook from TERM_PROGRAM the way the bridge mod does it: Nerd Font glyphs in Ghostty and iTerm2, plain ones elsewhere. */
 export type GlyphMode = "nerd" | "plain";
 
-/** The glyph each marker draws in place of its word: a lightbulb for the opening, bell, cog, a ring-of-dots spinner (closest to BB's Loading03) and a check circle for Done. */
+/** The glyph each marker draws in place of its word: a lightbulb for the opening, bell, cog, an arc spinner's first frame and a check circle for Done. */
 export const GLYPHS: Readonly<Record<GlyphMode, { opening: string; label: string; waiting: string; working: string; done: string }>> = {
-  nerd: { opening: "\u{f0335}", label: "\uf0f3", waiting: "\u{f0493}", working: "\uf110", done: "\u{f05e0}" },
+  nerd: { opening: "\u{f0335}", label: "\uf0f3", waiting: "\u{f0493}", working: "\uee06", done: "\u{f05e0}" },
   plain: { opening: "i", label: "!", waiting: "↻", working: "⠋", done: "✓" },
 };
+
+/**
+ * Working's frames on the newest reply: a terminal cannot rotate a glyph, so the spin swaps frames, one turn a
+ * second like BB's. Nerd: the six-frame arc (nf-extra-progress_spinner_1..6), six frames a second, inside the
+ * animation CPU budget; plain: the braille dots. Each set opens with GLYPHS[mode].working, the still glyph.
+ */
+export const SPIN_FRAMES: Readonly<Record<GlyphMode, readonly string[]>> = {
+  nerd: ["\uee06", "\uee07", "\uee08", "\uee09", "\uee0a", "\uee0b"],
+  plain: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+};
+export const SPIN_PERIOD_MS = 1000;
 
 /** The divider word each block shows on its rule, like BB's uppercase "NEEDS YOU" / "WAITING" line. */
 export const DIVIDER_WORDS = { opening: "NEW", label: "NEEDS YOU", waiting: "WAITING", working: "WORKING", done: "DONE" } as const;
@@ -44,9 +55,9 @@ export function dividerLine(word: string, color: TerminalColor | undefined, colu
 }
 
 /** Lines led by a glyph and a space; wrapped rows hang under the text, past the glyph. */
-function glyphLines(glyph: string | undefined, color: TerminalColor | undefined, runs: Run[], columns: number): TerminalLine[] {
+function glyphLines(glyph: string | undefined, color: TerminalColor | undefined, runs: Run[], columns: number, spin = false): TerminalLine[] {
   if (glyph === undefined) return wrapRuns(runs, Math.max(1, columns));
-  const lead: Run = color ? { text: glyph, color } : { text: glyph };
+  const lead: Run = { text: glyph, ...(color ? { color } : {}), ...(spin ? { spin: true as const } : {}) };
   const indent = cellWidth(glyph) + 1;
   return wrapRuns(runs, Math.max(1, columns - indent)).map((line, n) => (n === 0 ? [lead, { text: " " }, ...line] : [{ text: " ".repeat(indent) }, ...line]));
 }
@@ -81,7 +92,8 @@ export function layoutReply(text: string, columns: number, glyphMode: GlyphMode 
     // sentence led by the state's glyph. Done's check takes the default color: white on a dark theme.
     const color: TerminalColor | undefined = state.kind === "waiting" ? "success" : state.kind === "working" ? "warning" : undefined;
     const glyph = glyphs[state.kind];
-    const body = glyphLines(glyph, color, inlineRuns(restOf(blocks[blocks.length - 1]).trim()), columns);
+    // Working's glyph is marked to spin; the hook animates it on the newest reply only.
+    const body = glyphLines(glyph, color, inlineRuns(restOf(blocks[blocks.length - 1]).trim()), columns, state.kind === "working");
     sections.push({ kind: "styled", lines: [dividerLine(DIVIDER_WORDS[state.kind], color, columns), ...body] });
     return sections;
   }

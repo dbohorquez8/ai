@@ -1,8 +1,10 @@
 // reply-style: draws the reply markers in the terminal the way the BB plugin draws them in chat.
-// Three hooks and nothing else: the message render, session start and turn complete.
+// Three hooks and nothing else: the message render, session start and turn complete. Working's glyph spins
+// on the newest reply through the Client region in ./spinner.tsx.
 import type { EngineInterface, Register } from "claude-code";
 import { createSessionGuard, decideVersionNotice, VERSION_STORE_KEY, withTimeout } from "../lib/notices";
-import { layoutReply, type GlyphMode } from "../lib/layout";
+import { layoutReply, SPIN_FRAMES, SPIN_PERIOD_MS, type GlyphMode } from "../lib/layout";
+import { createNewestTracker } from "../lib/newest";
 import { THEME_KEYS } from "../lib/theme";
 import { TESTED_CLAUDE_CODE_VERSION } from "../lib/version";
 import type { Run } from "../lib/inline";
@@ -17,17 +19,32 @@ export const glyphModeOf = (terminalProgram: string | undefined): GlyphMode =>
 export const register: Register = (on) => {
   const guard = createSessionGuard();
   let glyphMode: GlyphMode = "plain";
+  const newest = createNewestTracker();
 
   // The render hook awaits nothing of its own: it returns a tree or next(e) at once.
   on("ui.render", { component: "AssistantMessage" }, ($, e, next) => {
     guard.renderRan();
     if (e.surface !== "terminal" || e.props.isSummary) return next(e);
     try {
+      // Every block counts, marked or not: a newer block of any kind stops an older spinner.
+      const seen = newest.see(e.requestId);
+      // A newer block took over: redraw the older ones so their glyph stands still.
+      if (seen.moved) $.ui.invalidate("ui.render");
       const sections = layoutReply(e.props.text, e.viewport?.columns ?? DEFAULT_COLUMNS, glyphMode);
       if (sections === null) return next(e);
-      const { Box, Text, Link, Markdown } = $.ui.resolve(e);
+      const { Box, Text, Link, Markdown, Client } = $.ui.resolve(e);
       const drawRun = (run: Run, key: number) => {
         const theme = run.color === undefined ? undefined : THEME_KEYS[run.color];
+        if (run.spin && seen.isNewest) {
+          return (
+            <Client
+              key="spin"
+              module="./spinner.tsx"
+              // The host refuses undefined anywhere in a Client's props, so absent colors are left out.
+              props={{ frames: [...SPIN_FRAMES[glyphMode]], periodMs: SPIN_PERIOD_MS, ...(theme?.color ? { color: theme.color } : {}), ...(theme?.dimColor ? { dimColor: true } : {}) }}
+            />
+          );
+        }
         const text = (
           <Text key={String(key)} color={theme?.color} dimColor={theme?.dimColor} bold={run.bold}>
             {run.text}

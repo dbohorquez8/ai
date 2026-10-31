@@ -1,7 +1,8 @@
 // The inline subset the mod draws itself: **bold**, `code`, [text](url). All else is literal.
 import type { TerminalColor } from "./layout";
 
-export type Run = { text: string; color?: TerminalColor; bold?: boolean; href?: string };
+/** `spin` marks Working's glyph: the hook swaps it for an animated region on the newest reply. */
+export type Run = { text: string; color?: TerminalColor; bold?: boolean; href?: string; spin?: true };
 
 export function inlineRuns(markdown: string): Run[] {
   const runs: Run[] = [];

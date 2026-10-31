@@ -24,7 +24,7 @@
     {
       "name": "reply-style",
       "source": "./plugins/reply-style",
-      "version": "0.5.5",
+      "version": "0.5.6",
       "description": "Shows the reply markers in the Claude Code terminal as BB does: colored dividers and glyphs.",
       "keywords": [
         "reply",

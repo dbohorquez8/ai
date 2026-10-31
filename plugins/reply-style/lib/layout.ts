@@ -19,14 +19,15 @@ export type GlyphMode = "nerd" | "plain";
 
 /** The glyph each marker draws in place of its word: a lightbulb for the opening, bell, cog, an arc spinner's first frame and a check circle for Done. */
 export const GLYPHS: Readonly<Record<GlyphMode, { opening: string; label: string; waiting: string; working: string; done: string }>> = {
-  nerd: { opening: "\u{f0335}", label: "\uf0f3", waiting: "\u{f0493}", working: "\uee06", done: "\u{f05e0}" },
+  nerd: { opening: "\u{f0335}", label: "\uf0f3", waiting: "\u{f0493}", working: "\uf110", done: "\u{f05e0}" },
   plain: { opening: "i", label: "!", waiting: "↻", working: "⠋", done: "✓" },
 };
 
 /**
  * Working's frames on the newest reply: a terminal cannot rotate a glyph, so the spin swaps frames, one turn a
  * second like BB's. Nerd: the six-frame arc (nf-extra-progress_spinner_1..6), six frames a second, inside the
- * animation CPU budget; plain: the braille dots. Each set opens with GLYPHS[mode].working, the still glyph.
+ * animation CPU budget; plain: the braille dots. Older replies stand still on GLYPHS[mode].working: in Nerd mode
+ * the full ring of dots (nf-fa-spinner), so a still reply never shows a partial arc; in plain mode the first frame.
  */
 export const SPIN_FRAMES: Readonly<Record<GlyphMode, readonly string[]>> = {
   nerd: ["\uee06", "\uee07", "\uee08", "\uee09", "\uee0a", "\uee0b"],

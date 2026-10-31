@@ -2,7 +2,7 @@
 
 reply-style draws the answer, the question that needs you, and the "what happens next" line of a Claude Code reply the way the BB reply-style plugin draws them: a colored divider with the block's name, and a glyph in place of the marker word, so you find them at a glance.
 
-![A reply in the Claude Code terminal with a blue bar on the opening sentence and a green bar on the closing Waiting line](assets/reply-with-mod.png)
+![A reply in the Claude Code terminal: a cyan NEW divider over the bold opening sentence with a lightbulb, and a green WAITING divider over the closing sentence with a cog](assets/reply-with-mod.png)
 
 *A reply with the mod, dark theme. The same reply without it is under [What it draws](#what-it-draws).*
 
@@ -27,13 +27,13 @@ Claude's reply carries three kinds of marker, each a bold word at the start of a
 
 The same reply without the mod shows the markers as plain text:
 
-![The reply as plain text, with Read and Waiting printed as bold words and no bars](assets/reply-without-mod.png)
+![The reply as plain text, with Read and Waiting printed as bold words and no dividers](assets/reply-without-mod.png)
 
 ### The question that needs you
 
 **Needs You** starts the part of a reply where you must decide or do something. Each question offers lettered options; the recommended one ends with `(My lean)`. Numbered questions are separated by a dashed line.
 
-![A reply with a blue Read bar and a red Needs You block holding two numbered questions with lettered options](assets/needs-you.png)
+![A reply with a cyan NEW divider over the opening, then a red NEEDS YOU divider, a bell before the question, and two numbered questions with red lettered options split by dashed lines](assets/needs-you.png)
 
 ### What happens next
 
@@ -41,23 +41,21 @@ A reply that asks nothing ends with one of three words. They differ in whether C
 
 **Waiting**: Claude's turn is over, but work it started still runs, such as a build, a test run or a child agent. Claude reports when it finishes. A green `WAITING` divider sits above the sentence, which starts with a cog.
 
-![A reply's closing sentence behind a green bar: the full test suite is running in the background, and the fix is pushed when it passes](assets/state-waiting.png)
+![A green WAITING divider over a closing sentence that starts with a cog: the full test suite is running in the background, and the fix is pushed when it passes](assets/state-waiting.png)
 
 **Working**: Claude's turn is not over; the reply is a progress update and Claude keeps going. A yellow `WORKING` divider sits above the sentence, which starts with a spinner.
 
-![A reply's closing sentence behind a yellow bar: the last step is rewriting the order table, with another report at the next update](assets/state-working.png)
+![A yellow WORKING divider over a closing sentence that starts with a spinner: the last step is rewriting the order table, with another report at the next update](assets/state-working.png)
 
 **Done**: Claude's turn is over and nothing still runs. A plain `DONE` divider sits above the sentence, which starts with a check.
 
-![A reply's closing sentence behind a plain bar: the fix is merged and nothing is left](assets/state-done.png)
+![A plain DONE divider over a closing sentence that starts with a check: the fix is merged and nothing is left](assets/state-done.png)
 
 A reply with a Needs You block has no closing line, because the next step is yours.
 
 ### Glyphs
 
-In Ghostty and iTerm2 (and cmux, which reports itself as Ghostty), which ship Nerd Font glyphs, the mod draws the Font Awesome bell (U+F0F3) and the Material Design lightbulb, cog and check circle (U+F0335, U+F0493, U+F05E0). Other terminals get `i`, `!`, `↻` and `✓`. Working shows an arc spinner (U+EE06 to U+EE0B); other terminals get the braille dots `⠋`. On the newest reply the spinner turns once a second, as BB's does, by swapping its frames; older replies keep the first frame. Waiting's cog stays still.
-
-> The screenshots above still show the earlier bar design.
+In Ghostty and iTerm2 (and cmux, which reports itself as Ghostty), which ship Nerd Font glyphs, the mod draws the Font Awesome bell (U+F0F3) and the Material Design lightbulb, cog and check circle (U+F0335, U+F0493, U+F05E0). Other terminals get `i`, `!`, `↻` and `✓`. Working shows an arc spinner (U+EE06 to U+EE0B); other terminals get the braille dots `⠋`. On the newest reply the spinner turns once a second, as BB's does, by swapping its frames; older replies show a still ring of dots (U+F110), or the first braille frame in other terminals. Waiting's cog stays still.
 
 ## Getting replies in this shape
 
@@ -78,7 +76,7 @@ Then pick **reply-markers** under Output style in `/config` and start a new sess
 
 ## Compatibility
 
-Tested on Claude Code 2.1.302. On another version the mod prints one notice per version change; the pictures above were captured on 2.1.308. It draws only in the terminal; every other surface, and any reply without markers, shows as usual. Colors come from your Claude Code theme, except the cyan of the opening and its `NEW` divider (#a1e7fa), which stays the same on a light theme.
+Tested on Claude Code 2.1.302. On another version the mod prints one notice per version change; the pictures above were captured on 2.1.316 in a Ghostty-style terminal. It draws only in the terminal; every other surface, and any reply without markers, shows as usual. Colors come from your Claude Code theme, except the cyan of the opening and its `NEW` divider (#a1e7fa), which stays the same on a light theme.
 
 ## Limits
 

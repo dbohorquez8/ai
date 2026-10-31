@@ -10,6 +10,8 @@ import { TESTED_CLAUDE_CODE_VERSION } from "../lib/version";
 import type { Run } from "../lib/inline";
 
 const DEFAULT_COLUMNS = 80;
+/** Left margin in cells: lines the styled reply up with the transcript's own text, indented under its bullet. */
+export const LEFT_MARGIN = 2;
 const STATE_TIMEOUT_MS = 1000;
 
 /** Same rule as the bridge mod: Ghostty and iTerm2 ship the Nerd Font glyphs; every other terminal gets plain ones. */
@@ -30,7 +32,8 @@ export const register: Register = (on) => {
       const seen = newest.see(e.requestId);
       // A newer block took over: redraw the older ones so their glyph stands still.
       if (seen.moved) $.ui.invalidate("ui.render");
-      const sections = layoutReply(e.props.text, e.viewport?.columns ?? DEFAULT_COLUMNS, glyphMode);
+      const columns = Math.max(1, (e.viewport?.columns ?? DEFAULT_COLUMNS) - LEFT_MARGIN);
+      const sections = layoutReply(e.props.text, columns, glyphMode);
       if (sections === null) return next(e);
       const { Box, Text, Link, Markdown, Client } = $.ui.resolve(e);
       const drawRun = (run: Run, key: number) => {
@@ -65,7 +68,7 @@ export const register: Register = (on) => {
       ));
       // One blank row between neighbouring sections.
       const rows = parts.flatMap((part, i) => (i === 0 ? [part] : [<Text key={`gap${i}`}> </Text>, part]));
-      return <Box flexDirection="column">{rows}</Box>;
+      return <Box flexDirection="column" marginLeft={LEFT_MARGIN}>{rows}</Box>;
     } catch {
       guard.renderFailed();
       return next(e);

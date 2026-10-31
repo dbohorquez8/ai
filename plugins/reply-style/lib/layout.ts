@@ -17,10 +17,10 @@ export const WRAP_INDENT = "    ";
 /** Glyph set, resolved by the hook from TERM_PROGRAM the way the bridge mod does it: Nerd Font glyphs in Ghostty and iTerm2, plain ones elsewhere. */
 export type GlyphMode = "nerd" | "plain";
 
-/** The glyph each marker draws in place of its word: the bridge mod's bell, cog and spinner; Done draws none. */
-export const GLYPHS: Readonly<Record<GlyphMode, { opening: string; label: string; waiting: string; working: string }>> = {
-  nerd: { opening: "\uf05a", label: "\uf0f3", waiting: "\uf013", working: "⠋" },
-  plain: { opening: "i", label: "!", waiting: "↻", working: "⠋" },
+/** The glyph each marker draws in place of its word: info, bell, cog, spinner and a check for Done. */
+export const GLYPHS: Readonly<Record<GlyphMode, { opening: string; label: string; waiting: string; working: string; done: string }>> = {
+  nerd: { opening: "\uf05a", label: "\uf0f3", waiting: "\u{f0493}", working: "⠋", done: "\uf00c" },
+  plain: { opening: "i", label: "!", waiting: "↻", working: "⠋", done: "✓" },
 };
 
 /** The divider word each block shows on its rule, like BB's uppercase "NEEDS YOU" / "WAITING" line. */
@@ -78,9 +78,9 @@ export function layoutReply(text: string, columns: number, glyphMode: GlyphMode 
   if (middleEnd > middleStart) sections.push({ kind: "markdown", text: sourceOf(middleStart, middleEnd - 1) });
   if (state) {
     // The closing state: a divider in the state's color (green Waiting, yellow Working, default Done), then the
-    // sentence led by the state's glyph. Done draws no glyph, as in BB.
+    // sentence led by the state's glyph. Done's check takes the default color: white on a dark theme.
     const color: TerminalColor | undefined = state.kind === "waiting" ? "success" : state.kind === "working" ? "warning" : undefined;
-    const glyph = state.kind === "done" ? undefined : glyphs[state.kind];
+    const glyph = glyphs[state.kind];
     const body = glyphLines(glyph, color, inlineRuns(restOf(blocks[blocks.length - 1]).trim()), columns);
     sections.push({ kind: "styled", lines: [dividerLine(DIVIDER_WORDS[state.kind], color, columns), ...body] });
     return sections;

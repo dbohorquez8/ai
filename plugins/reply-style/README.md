@@ -23,7 +23,7 @@ Claude's reply carries three kinds of marker, each a bold word at the start of a
 | --- | --- |
 | `**Read** <answer>` as the first paragraph | A blue `NEW ────` divider, then the answer in bold behind a blue info glyph; the word Read is dropped. |
 | `**Needs You** <question>` and the lettered options after it | A red `NEEDS YOU ────` divider, the question behind a red bell, red option letters, a dashed line between numbered questions. |
-| `**Waiting**`, `**Working**` or `**Done**` as the last paragraph | A green `WAITING`, yellow `WORKING` or plain `DONE` divider, then the sentence behind a cog, a spinner or nothing. |
+| `**Waiting**`, `**Working**` or `**Done**` as the last paragraph | A green `WAITING`, yellow `WORKING` or plain `DONE` divider, then the sentence behind a cog, a spinner or a check. |
 
 The same reply without the mod shows the markers as plain text:
 
@@ -47,7 +47,7 @@ A reply that asks nothing ends with one of three words. They differ in whether C
 
 ![A reply's closing sentence behind a yellow bar: the last step is rewriting the order table, with another report at the next update](assets/state-working.png)
 
-**Done**: Claude's turn is over and nothing still runs. A plain `DONE` divider sits above the sentence.
+**Done**: Claude's turn is over and nothing still runs. A plain `DONE` divider sits above the sentence, which starts with a check.
 
 ![A reply's closing sentence behind a plain bar: the fix is merged and nothing is left](assets/state-done.png)
 
@@ -55,7 +55,7 @@ A reply with a Needs You block has no closing line, because the next step is you
 
 ### Glyphs
 
-In Ghostty and iTerm2, which ship Nerd Font glyphs, the mod draws Font Awesome's info sign, bell and cog (`\uf05a`, `\uf0f3`, `\uf013`), the same family as the bridge mod's bell. Other terminals get `i`, `!` and `↻`. Working always shows the braille spinner `⠋`.
+In Ghostty and iTerm2 (and cmux, which reports itself as Ghostty), which ship Nerd Font glyphs, the mod draws the Font Awesome info sign, bell and check (U+F05A, U+F0F3, U+F00C) and the Material Design cog (U+F0493). Other terminals get `i`, `!`, `↻` and `✓`. Working always shows the braille spinner `⠋`.
 
 > The screenshots above still show the earlier bar design.
 

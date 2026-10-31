@@ -1,6 +1,6 @@
 # reply-style
 
-reply-style draws the answer, the question that needs you, and the "what happens next" line of a Claude Code reply as colored bars, so you find them at a glance.
+reply-style draws the answer, the question that needs you, and the "what happens next" line of a Claude Code reply the way the BB reply-style plugin draws them: a colored divider with the block's name, and a glyph in place of the marker word, so you find them at a glance.
 
 ![A reply in the Claude Code terminal with a blue bar on the opening sentence and a green bar on the closing Waiting line](assets/reply-with-mod.png)
 
@@ -13,7 +13,7 @@ claude plugin marketplace add dbohorquez8/ai
 claude plugin install reply-style@dbohorquez
 ```
 
-Restart Claude Code to load it. Replies only get bars when they use the markers below; [Getting replies in this shape](#getting-replies-in-this-shape) shows how.
+Restart Claude Code to load it. Replies are only restyled when they use the markers below; [Getting replies in this shape](#getting-replies-in-this-shape) shows how.
 
 ## What it draws
 
@@ -21,9 +21,9 @@ Claude's reply carries three kinds of marker, each a bold word at the start of a
 
 | Marker in the reply | What the terminal shows |
 | --- | --- |
-| `**Read** <answer>` as the first paragraph | The answer in bold behind a blue bar; the word Read is dropped. |
-| `**Needs You** <question>` and the lettered options after it | A red bar down the whole block, red option letters, a dashed line between numbered questions. |
-| `**Waiting**`, `**Working**` or `**Done**` as the last paragraph | The sentence behind a green, yellow or plain bar; the word is dropped. |
+| `**Read** <answer>` as the first paragraph | The answer in bold behind a blue info glyph; the word Read is dropped. |
+| `**Needs You** <question>` and the lettered options after it | A red `NEEDS YOU ────` divider, the question behind a red bell, red option letters, a dashed line between numbered questions. |
+| `**Waiting**`, `**Working**` or `**Done**` as the last paragraph | A green `WAITING`, yellow `WORKING` or plain `DONE` divider, then the sentence behind a cog, a spinner or nothing. |
 
 The same reply without the mod shows the markers as plain text:
 
@@ -39,19 +39,25 @@ The same reply without the mod shows the markers as plain text:
 
 A reply that asks nothing ends with one of three words. They differ in whether Claude's turn is over and whether anything still runs.
 
-**Waiting**: Claude's turn is over, but work it started still runs, such as a build, a test run or a child agent. Claude reports when it finishes. The sentence sits behind a green bar.
+**Waiting**: Claude's turn is over, but work it started still runs, such as a build, a test run or a child agent. Claude reports when it finishes. A green `WAITING` divider sits above the sentence, which starts with a cog.
 
 ![A reply's closing sentence behind a green bar: the full test suite is running in the background, and the fix is pushed when it passes](assets/state-waiting.png)
 
-**Working**: Claude's turn is not over; the reply is a progress update and Claude keeps going. The sentence sits behind a yellow bar.
+**Working**: Claude's turn is not over; the reply is a progress update and Claude keeps going. A yellow `WORKING` divider sits above the sentence, which starts with a spinner.
 
 ![A reply's closing sentence behind a yellow bar: the last step is rewriting the order table, with another report at the next update](assets/state-working.png)
 
-**Done**: Claude's turn is over and nothing still runs. The sentence sits behind a plain bar.
+**Done**: Claude's turn is over and nothing still runs. A plain `DONE` divider sits above the sentence.
 
 ![A reply's closing sentence behind a plain bar: the fix is merged and nothing is left](assets/state-done.png)
 
 A reply with a Needs You block has no closing line, because the next step is yours.
+
+### Glyphs
+
+The glyphs are the bridge mod's: in Ghostty and iTerm2, which ship Nerd Font glyphs, the bell is ``, the cog `⚙`, the info sign ``. Other terminals get `!`, `↻` and `i`. Working always shows the braille spinner `⠋`.
+
+> The screenshots above still show the earlier bar design.
 
 ## Getting replies in this shape
 

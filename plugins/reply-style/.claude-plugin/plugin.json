@@ -1,7 +1,7 @@
 {
   "name": "reply-style",
-  "version": "0.4.0",
-  "description": "Shows the Read and Needs You reply markers as bars in the Claude Code terminal.",
+  "version": "0.5.0",
+  "description": "Shows the reply markers in the Claude Code terminal as BB does: colored dividers and glyphs.",
   "author": {
     "name": "dbohorquez8"
   }

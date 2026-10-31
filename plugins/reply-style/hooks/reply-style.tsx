@@ -1,8 +1,8 @@
-// reply-style: draws the Read and Needs You reply markers as bars in the terminal.
+// reply-style: draws the reply markers in the terminal the way the BB plugin draws them in chat.
 // Three hooks and nothing else: the message render, session start and turn complete.
 import type { EngineInterface, Register } from "claude-code";
 import { createSessionGuard, decideVersionNotice, VERSION_STORE_KEY, withTimeout } from "../lib/notices";
-import { layoutReply } from "../lib/layout";
+import { layoutReply, type GlyphMode } from "../lib/layout";
 import { THEME_KEYS } from "../lib/theme";
 import { TESTED_CLAUDE_CODE_VERSION } from "../lib/version";
 import type { Run } from "../lib/inline";
@@ -10,15 +10,20 @@ import type { Run } from "../lib/inline";
 const DEFAULT_COLUMNS = 80;
 const STATE_TIMEOUT_MS = 1000;
 
+/** Same rule as the bridge mod: Ghostty and iTerm2 ship the Nerd Font glyphs; every other terminal gets plain ones. */
+export const glyphModeOf = (terminalProgram: string | undefined): GlyphMode =>
+  terminalProgram === "ghostty" || terminalProgram === "iTerm.app" ? "nerd" : "plain";
+
 export const register: Register = (on) => {
   const guard = createSessionGuard();
+  let glyphMode: GlyphMode = "plain";
 
   // The render hook awaits nothing of its own: it returns a tree or next(e) at once.
   on("ui.render", { component: "AssistantMessage" }, ($, e, next) => {
     guard.renderRan();
     if (e.surface !== "terminal" || e.props.isSummary) return next(e);
     try {
-      const sections = layoutReply(e.props.text, e.viewport?.columns ?? DEFAULT_COLUMNS);
+      const sections = layoutReply(e.props.text, e.viewport?.columns ?? DEFAULT_COLUMNS, glyphMode);
       if (sections === null) return next(e);
       const { Box, Text, Link, Markdown } = $.ui.resolve(e);
       const drawRun = (run: Run, key: number) => {
@@ -56,6 +61,9 @@ export const register: Register = (on) => {
   on("session.start", ($, e, next) => {
     guard.start(e);
     void checkVersion($);
+    void readTerminal($).then((program) => {
+      glyphMode = glyphModeOf(program);
+    });
     return next(e);
   });
 
@@ -65,6 +73,16 @@ export const register: Register = (on) => {
     return next(e);
   });
 };
+
+/** TERM_PROGRAM, or undefined when the host cannot say in time. Never throws. */
+async function readTerminal($: EngineInterface): Promise<string | undefined> {
+  try {
+    const value = await withTimeout(Promise.resolve($.env.get("TERM_PROGRAM")), STATE_TIMEOUT_MS);
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Fire and forget: no await by the caller, bounded reads, never throws. */
 async function checkVersion($: EngineInterface): Promise<void> {

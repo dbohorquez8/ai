@@ -23,7 +23,7 @@ Claude's reply carries three kinds of marker, each a bold word at the start of a
 | --- | --- |
 | `**Read** <answer>` as the first paragraph | A cyan `NEW ────` divider (the color of BB's new-messages line), then the answer in bold behind a cyan lightbulb; the word Read is dropped. |
 | `**Needs You** <question>` and the lettered options after it | A red `NEEDS YOU ────` divider, the question behind a red bell, red option letters, a dashed line between numbered questions. |
-| `**Waiting**`, `**Working**` or `**Done**` as the last paragraph | A green `WAITING`, yellow `WORKING` or plain `DONE` divider, then the sentence behind a cog, a spinner or a check. |
+| `**Waiting**`, `**Working**`, `**Done**` or `**Finalized**` as the last paragraph | A green `WAITING`, yellow `WORKING`, plain `DONE` or violet `FINALIZED` divider, then the sentence behind a cog, a spinner, a check or a flag. |
 
 The same reply without the mod shows the markers as plain text:
 
@@ -49,6 +49,8 @@ A reply that asks nothing ends with one of three words. They differ in whether C
 
 **Done**: Claude's turn is over and nothing still runs. A plain `DONE` divider sits above the sentence, which starts with a check.
 
+**Finalized**: the session is closed for good. A violet `FINALIZED` divider sits above the sentence, which starts with a flag (U+F11D in Nerd Font terminals, `⚑` elsewhere).
+
 ![A plain DONE divider over a closing sentence that starts with a check: the fix is merged and nothing is left](assets/state-done.png)
 
 A reply with a Needs You block has no closing line, because the next step is yours.
@@ -71,7 +73,7 @@ Then pick **reply-markers** under Output style in `/config` and start a new sess
 
 - **Read** is the first paragraph's bold lead.
 - **Needs You** starts the action block. Options are bold `(A)`, `(B)` … leads; numbered questions use a bold `1 · Question?` header.
-- **Waiting**, **Working** or **Done** is the last paragraph's bold lead; a reply with a Needs You block has none.
+- **Waiting**, **Working**, **Done** or **Finalized** is the last paragraph's bold lead; a reply with a Needs You block has none.
 - A lead counts only when it is the exact capitalised word followed by a space, a line break or the end of the paragraph.
 
 ## Compatibility

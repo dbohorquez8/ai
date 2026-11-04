@@ -14,4 +14,6 @@ export const THEME_KEYS: Readonly<Record<TerminalColor, { color: Color; dimColor
   // a custom theme's missing tokens fall through to its built-in base, which defines both.
   success: { color: "success" },
   warning: { color: "warning" },
+  // Finalized: the theme's violet ("merged"), so the divider and flag follow a theme switch (WS-206).
+  violet: { color: "merged" },
 };

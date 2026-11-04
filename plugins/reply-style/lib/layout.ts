@@ -6,7 +6,7 @@ import { inlineRuns, type Run } from "./inline";
 import { classifyReply, type BlockRole } from "./markers";
 import { cellWidth, wrapRuns } from "./width";
 
-export type TerminalColor = "accent" | "error" | "errorBar" | "muted" | "success" | "warning";
+export type TerminalColor = "accent" | "error" | "errorBar" | "muted" | "success" | "warning" | "violet";
 export type TerminalLine = Run[];
 export type Section = { kind: "styled"; lines: TerminalLine[] } | { kind: "markdown"; text: string };
 
@@ -17,10 +17,10 @@ export const WRAP_INDENT = "    ";
 /** Glyph set, resolved by the hook from TERM_PROGRAM the way the bridge mod does it: Nerd Font glyphs in Ghostty and iTerm2, plain ones elsewhere. */
 export type GlyphMode = "nerd" | "plain";
 
-/** The glyph each marker draws in place of its word: a lightbulb for the opening, bell, cog, an arc spinner's first frame and a check circle for Done. */
-export const GLYPHS: Readonly<Record<GlyphMode, { opening: string; label: string; waiting: string; working: string; done: string }>> = {
-  nerd: { opening: "\u{f0335}", label: "\uf0f3", waiting: "\u{f0493}", working: "\uf110", done: "\u{f05e0}" },
-  plain: { opening: "i", label: "!", waiting: "↻", working: "⠋", done: "✓" },
+/** The glyph each marker draws in place of its word: a lightbulb for the opening, bell, cog, an arc spinner's first frame, a check circle for Done and an outline flag for Finalized. */
+export const GLYPHS: Readonly<Record<GlyphMode, { opening: string; label: string; waiting: string; working: string; done: string; finalized: string }>> = {
+  nerd: { opening: "\u{f0335}", label: "\uf0f3", waiting: "\u{f0493}", working: "\uf110", done: "\u{f05e0}", finalized: "\uf11d" },
+  plain: { opening: "i", label: "!", waiting: "↻", working: "⠋", done: "✓", finalized: "⚑" },
 };
 
 /**
@@ -36,7 +36,7 @@ export const SPIN_FRAMES: Readonly<Record<GlyphMode, readonly string[]>> = {
 export const SPIN_PERIOD_MS = 1000;
 
 /** The divider word each block shows on its rule, like BB's uppercase "NEEDS YOU" / "WAITING" line. */
-export const DIVIDER_WORDS = { opening: "NEW", label: "NEEDS YOU", waiting: "WAITING", working: "WORKING", done: "DONE" } as const;
+export const DIVIDER_WORDS = { opening: "NEW", label: "NEEDS YOU", waiting: "WAITING", working: "WORKING", done: "DONE", finalized: "FINALIZED" } as const;
 
 /** The paragraph's text as the host would join it: markdown's own line breaks become spaces. */
 function paragraphText(lines: readonly string[], block: SourceBlock): string {
@@ -89,9 +89,9 @@ export function layoutReply(text: string, columns: number, glyphMode: GlyphMode 
   const middleEnd = firstLabel === -1 ? blocks.length - (state ? 1 : 0) : firstLabel;
   if (middleEnd > middleStart) sections.push({ kind: "markdown", text: sourceOf(middleStart, middleEnd - 1) });
   if (state) {
-    // The closing state: a divider in the state's color (green Waiting, yellow Working, default Done), then the
+    // The closing state: a divider in the state's color (green Waiting, yellow Working, violet Finalized, default Done), then the
     // sentence led by the state's glyph. Done's check takes the default color: white on a dark theme.
-    const color: TerminalColor | undefined = state.kind === "waiting" ? "success" : state.kind === "working" ? "warning" : undefined;
+    const color: TerminalColor | undefined = state.kind === "waiting" ? "success" : state.kind === "working" ? "warning" : state.kind === "finalized" ? "violet" : undefined;
     const glyph = glyphs[state.kind];
     // Working's glyph is marked to spin; the hook animates it on the newest reply only.
     const body = glyphLines(glyph, color, inlineRuns(restOf(blocks[blocks.length - 1]).trim()), columns, state.kind === "working");

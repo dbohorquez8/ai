@@ -50,6 +50,8 @@ last paragraph, and it starts with one bold word alone, then a space:
   update during a long task.
 - **Done**: nothing is left. No subagent runs, no background command runs,
   and you have no queued next step.
+- **Finalized**: the session is closed for good, as the last reply of a close-out
+  such as `/finalize`. Use it only when nothing is left and no sequel is planned.
 
 Do not add any other colored emoji or standalone state line.
 
@@ -148,4 +150,4 @@ Check four things:
    makes sense on its own.
 4. A reply with a Needs You block has no state line. A reply that asks nothing
    ends with exactly one state paragraph that starts with **Waiting**,
-   **Working**, or **Done**, and **Done** is true only if nothing still runs.
+   **Working**, **Done**, or **Finalized**, and **Done** is true only if nothing still runs.
